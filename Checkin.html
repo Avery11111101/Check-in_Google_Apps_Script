@@ -1,0 +1,192 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <base target="_top">
+    <?!= include('app.css'); ?>
+  </head>
+  <body>
+    <div class="appBg">
+    <div class="container">
+      <div class="topbar">
+        <div>
+          <div class="title">簽到</div>
+          <div class="subtitle">選擇姓名後，往左滑動確認</div>
+        </div>
+        <div class="topActions">
+          <div id="topNav"></div>
+          <div class="badge mono">v<?= esc(bootstrap.version) ?></div>
+        </div>
+      </div>
+
+      <div class="grid">
+        <div class="card">
+          <h2>簽到資訊</h2>
+          <div class="field">
+            <label>活動（eventId）</label>
+            <input id="eventId" placeholder="例如：evt_xxx" value="<?= esc(bootstrap.eventId) ?>" <?= bootstrap.eventId ? 'readonly' : '' ?>>
+            <div class="hint">通常會由 QR Code 自動帶入；若你是手動開啟，請輸入活動 eventId。</div>
+          </div>
+
+          <div class="field">
+            <label>姓名（從名單選擇）</label>
+            <select id="personSelect">
+              <option value="">載入中…</option>
+            </select>
+          </div>
+
+          <div class="field">
+            <label>字體 / 字型（可自由填寫）</label>
+            <input id="font" placeholder="例如：思源黑體 / 微軟正黑體">
+          </div>
+
+          <div class="field">
+            <label>動作</label>
+            <div class="row">
+              <button id="btnIn">簽到</button>
+              <button id="btnOut" class="secondary">簽退</button>
+            </div>
+            <div class="hint">選好動作後，往左滑到底就會送出。</div>
+          </div>
+
+          <div class="slideWrap">
+            <div class="slideLabel">
+              <div class="pill"><span class="dot" id="actionDot"></span><span id="actionText">尚未選擇動作</span></div>
+              <div class="badge mono" id="serverTime"></div>
+            </div>
+            <div class="slideBar" id="slideBar">
+              <div class="slideText" id="slideHint">往左滑動確認</div>
+              <div class="thumb" id="thumb">滑動</div>
+            </div>
+            <div class="toast" id="toast"></div>
+          </div>
+        </div>
+
+        <div class="card">
+          <h2>目前狀態</h2>
+          <div id="statusBox" class="hint">請先選擇活動與姓名。</div>
+          <div style="margin-top:12px" class="hint">若出現「尚未開放」，請通知管理員在管理頁點選「開放簽到」。</div>
+        </div>
+      </div>
+    </div>
+    </div>
+
+    <?!= include('app.js'); ?>
+    <script>
+      const BOOT = <?= JSON.stringify(bootstrap) ?>;
+      document.getElementById('topNav').appendChild(renderTopbarNav(BOOT));
+      let action = null; // IN | OUT
+      let busy = false;
+
+      function setToast(msg){ $('#toast').textContent = msg || ''; }
+
+      function setAction(next){
+        action = next;
+        $('#actionText').textContent = next === 'IN' ? '即將簽到' : next === 'OUT' ? '即將簽退' : '尚未選擇動作';
+        const dot = $('#actionDot');
+        dot.className = 'dot ' + (next === 'IN' ? 'ok' : next === 'OUT' ? 'warn' : '');
+      }
+
+      async function refreshRoster(){
+        const eventId = $('#eventId').value.trim();
+        if (!eventId){ $('#personSelect').innerHTML = '<option value=\"\">請先填 eventId</option>'; return; }
+        const roster = await api('publicListRoster', eventId);
+        $('#personSelect').innerHTML = '<option value=\"\">請選擇</option>' + roster.map(p => `<option value=\"${esc(p.personId)}\">${esc(p.displayName)}</option>`).join('');
+      }
+
+      async function refreshStatus(){
+        const eventId = $('#eventId').value.trim();
+        const personId = $('#personSelect').value;
+        if (!eventId || !personId){ $('#statusBox').textContent = '請先選擇活動與姓名。'; return; }
+        const s = await api('publicGetPersonStatus', eventId, personId);
+        $('#statusBox').innerHTML = `
+          <div class="pill"><span class="dot ${s.status==='IN'?'ok':(s.status==='OUT'?'bad':'')}"></span>
+            <span>${esc(s.statusLabel)}</span>
+          </div>
+          <div style="margin-top:10px" class="hint">最後時間：<span class="mono">${esc(s.lastTime ? fmtTs(s.lastTime) : '—')}</span></div>
+        `;
+      }
+
+      async function submit(){
+        if (busy) return;
+        const eventId = $('#eventId').value.trim();
+        const personId = $('#personSelect').value;
+        const font = $('#font').value.trim();
+        if (!eventId) return setToast('請填寫 eventId。');
+        if (!personId) return setToast('請先選擇姓名。');
+        if (!action) return setToast('請先選擇「簽到」或「簽退」。');
+        busy = true;
+        setToast('送出中…');
+        try{
+          const res = await api('publicSubmitAttendance', { eventId, personId, action, font, clientMeta: { ua:navigator.userAgent } });
+          $('#serverTime').textContent = '伺服器時間 ' + fmtTs(res.serverTime);
+          setToast(action === 'IN' ? '簽到完成' : '簽退完成');
+          await refreshStatus();
+        }catch(e){
+          setToast(e && e.message ? e.message : String(e));
+        }finally{
+          busy = false;
+        }
+      }
+
+      function initSlide(){
+        const bar = $('#slideBar');
+        const thumb = $('#thumb');
+        let dragging = false;
+        let startX = 0;
+        let startRight = 6;
+
+        function setRight(px){
+          const maxRight = 6;
+          const minRight = bar.clientWidth - thumb.clientWidth - 6;
+          const r = Math.max(minRight, Math.min(maxRight, px));
+          thumb.style.right = r + 'px';
+          return r;
+        }
+        function reset(){ thumb.style.right = '6px'; }
+
+        function onDown(ev){
+          if (busy) return;
+          dragging = true;
+          startX = (ev.touches ? ev.touches[0].clientX : ev.clientX);
+          const right = parseFloat(getComputedStyle(thumb).right) || 6;
+          startRight = right;
+          ev.preventDefault();
+        }
+        async function onMove(ev){
+          if (!dragging) return;
+          const x = (ev.touches ? ev.touches[0].clientX : ev.clientX);
+          const dx = x - startX;
+          const right = setRight(startRight - dx);
+          const minRight = bar.clientWidth - thumb.clientWidth - 6;
+          if (right <= minRight + 2){
+            dragging = false;
+            await submit();
+            reset();
+          }
+          ev.preventDefault();
+        }
+        function onUp(){ dragging = false; }
+
+        thumb.addEventListener('mousedown', onDown);
+        thumb.addEventListener('touchstart', onDown, { passive:false });
+        window.addEventListener('mousemove', onMove, { passive:false });
+        window.addEventListener('touchmove', onMove, { passive:false });
+        window.addEventListener('mouseup', onUp);
+        window.addEventListener('touchend', onUp);
+      }
+
+      $('#btnIn').addEventListener('click', () => setAction('IN'));
+      $('#btnOut').addEventListener('click', () => setAction('OUT'));
+      $('#eventId').addEventListener('change', async () => { await refreshRoster(); await refreshStatus(); });
+      $('#personSelect').addEventListener('change', refreshStatus);
+
+      setAction(null);
+      initSlide();
+      (async () => {
+        if (BOOT.eventId) await refreshRoster();
+        await refreshStatus();
+      })();
+    </script>
+  </body>
+</html>
+

@@ -1,0 +1,405 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <base target="_top">
+    <?!= include('app.css'); ?>
+  </head>
+  <body>
+    <div class="appBg">
+    <div class="container">
+      <div class="topbar">
+        <div>
+          <div class="title">管理</div>
+          <div class="subtitle">活動設定、名單與附件</div>
+        </div>
+        <div class="topActions">
+          <div id="topNav"></div>
+          <div class="badge mono"><?= esc(bootstrap.userEmail || 'unknown') ?></div>
+          <div class="badge mono">v<?= esc(bootstrap.version) ?></div>
+        </div>
+      </div>
+
+      <div class="grid">
+        <div class="card">
+          <h2>活動 / 場次</h2>
+          <div class="row">
+            <button id="btnCreateEvent">建立新活動</button>
+            <button id="btnRefresh" class="secondary">重新整理</button>
+          </div>
+          <div class="field">
+            <label>選擇活動</label>
+            <select id="eventSelect"><option value="">載入中…</option></select>
+          </div>
+          <div class="field">
+            <label>QR Code 連結</label>
+            <input id="qrLink" class="mono" readonly>
+            <div class="hint">把這個連結轉成 QR Code 貼出來即可（本版先提供連結；下一步會在此頁直接顯示 QR 圖）。</div>
+          </div>
+          <div class="field">
+            <label>活動雲端資料夾（Drive）</label>
+            <input id="eventFolderUrl" class="mono" readonly>
+            <div class="hint">所有活動子資料夾與附件皆在腳本設定的「電子簽到」根資料夾下；格式為 <span class="mono">電子簽到_{活動名稱}_{時間戳}</span>。附件上傳會寫入目前選擇活動的資料夾。</div>
+          </div>
+          <div class="field">
+            <label>活動設定試算表（建立當下）</label>
+            <input id="eventSettingsUrl" class="mono" readonly placeholder="建立新活動後會顯示連結；其他活動請至雲端資料夾內開啟「…_設定」檔案。">
+            <div class="hint">與該活動一併建立的 Google 試算表（檔名含 <span class="mono">_設定</span>），內含「分組」「名單」格式欄位供備份或協作；切換下拉選單後此欄會清空，請從資料夾開啟。</div>
+          </div>
+          <div class="row">
+            <button id="btnOpen">開放簽到</button>
+            <button id="btnClose" class="secondary">關閉簽到</button>
+          </div>
+          <div class="toast" id="toast"></div>
+        </div>
+
+        <div class="card">
+          <h2>共同管理員</h2>
+          <div class="field">
+            <label>新增管理員 email</label>
+            <div class="row" style="width:100%">
+              <input id="adminEmail" placeholder="name@example.com" style="flex:1">
+              <button id="btnAddAdmin">新增</button>
+            </div>
+          </div>
+          <div class="field">
+            <label>目前管理員</label>
+            <div id="adminList" class="hint">載入中…</div>
+          </div>
+          <div class="hint">新增後，對方用同一個管理頁連結登入，就會有管理權限。</div>
+        </div>
+      </div>
+
+      <div class="grid">
+        <div class="card">
+          <h2>分類 / 分組</h2>
+          <div class="field">
+            <label>新增分組（先選擇活動）</label>
+            <div class="row" style="width:100%">
+              <input id="grpCategory" placeholder="分類（例如：資訊組）" style="flex:1">
+              <input id="grpName" placeholder="分組（例如：第1組）" style="flex:1">
+              <button id="btnAddGroup">新增</button>
+            </div>
+          </div>
+          <div id="groupList" class="list">請先選擇活動。</div>
+        </div>
+      </div>
+
+      <div class="grid">
+        <div class="card">
+          <h2>名單</h2>
+          <div class="field">
+            <label>新增人員（先選擇活動）</label>
+            <div class="row" style="width:100%">
+              <input id="personName" placeholder="姓名" style="flex:1">
+              <select id="personGroup" style="flex:1"></select>
+              <button id="btnAddPerson">新增</button>
+            </div>
+          </div>
+          <div id="rosterList" class="list">請先選擇活動。</div>
+        </div>
+
+        <div class="card">
+          <h2>每日附件圖片</h2>
+          <div class="field">
+            <label>日期</label>
+            <input id="attachDate" type="date">
+          </div>
+          <div class="field">
+            <label>標題</label>
+            <input id="attachTitle" placeholder="例如：Day 1 小組照片">
+          </div>
+          <div class="field">
+            <label>上傳圖片</label>
+            <input id="attachFile" type="file" accept="image/*">
+          </div>
+          <div class="row">
+            <button id="btnUploadAttach">上傳並綁定</button>
+            <button id="btnRefreshAttach" class="secondary">重新整理</button>
+          </div>
+          <div id="attachList" class="list">請先選擇活動。</div>
+        </div>
+      </div>
+    </div>
+    </div>
+
+    <?!= include('app.js'); ?>
+    <script>
+      const BOOT = <?= JSON.stringify(bootstrap) ?>;
+      document.getElementById('topNav').appendChild(renderTopbarNav(BOOT));
+
+      function setToast(msg){ $('#toast').textContent = msg || ''; }
+
+      function renderAdmins(admins){
+        if (!admins || !admins.length) {
+          $('#adminList').innerHTML = '<div class="hint">目前沒有設定管理員（理論上至少會有你自己）。</div>';
+          return;
+        }
+        $('#adminList').innerHTML = admins.map(email => {
+          const isMe = (email || '').toLowerCase() === (BOOT.userEmail || '').toLowerCase();
+          return `
+            <div class="listRow">
+              <div>
+                <div class="name mono">${esc(email)}${isMe ? '（你）' : ''}</div>
+              </div>
+              <div class="right">
+                <button class="danger" data-remove="${esc(email)}" ${isMe ? 'disabled' : ''}>移除</button>
+              </div>
+            </div>
+          `;
+        }).join('');
+        $all('[data-remove]').forEach(btn => {
+          btn.addEventListener('click', async () => {
+            const email = btn.getAttribute('data-remove');
+            if (!email) return;
+            if (!confirm('確定要移除管理員：' + email + '？')) return;
+            const res = await api('adminRemoveAdminEmail', { email });
+            renderAdmins(res.admins);
+            setToast('已移除：' + email);
+          });
+        });
+      }
+
+      async function loadAdmins(){
+        const res = await api('adminListAdmins');
+        renderAdmins(res.admins);
+      }
+
+      function setLinks(eventId){
+        const base = BOOT.webAppUrl;
+        const checkin = `${base}?page=checkin&eventId=${encodeURIComponent(eventId)}`;
+        const board = `${base}?page=board&eventId=${encodeURIComponent(eventId)}`;
+        $('#qrLink').value = checkin;
+        $('#boardLink').value = board;
+        $('#checkinLink').value = checkin;
+      }
+
+      async function loadEvents(){
+        try{
+          const events = await api('adminListEvents');
+          window.__events = events;
+          $('#eventSelect').innerHTML = '<option value=\"\">請選擇</option>' + events.map(e => `<option value=\"${esc(e.eventId)}\">${esc(e.name)}</option>`).join('');
+        }catch(e){
+          setToast(e && e.message ? e.message : String(e));
+          $('#eventSelect').innerHTML = '<option value=\"\">載入失敗（請看上方訊息）</option>';
+        }
+      }
+
+      async function createEvent(){
+        const name = prompt('活動名稱（例如：週會簽到）');
+        if (!name) return;
+        const res = await api('adminCreateEvent', { name });
+        await loadEvents();
+        $('#eventSelect').value = res.eventId;
+        setLinks(res.eventId);
+        $('#eventFolderUrl').value = res.driveFolderUrl || '';
+        $('#eventSettingsUrl').value = res.driveSettingsUrl || '';
+        setToast('已建立活動：' + res.eventId);
+      }
+
+      async function setOpen(isOpen){
+        const eventId = $('#eventSelect').value;
+        if (!eventId) return setToast('請先選擇活動。');
+        await api('adminSetEventOpen', { eventId, isOpen });
+        setToast(isOpen ? '已開放簽到' : '已關閉簽到');
+      }
+
+      function getSelectedEventId(){
+        return ($('#eventSelect').value || '').trim();
+      }
+
+      function renderGroups(groups){
+        if (!groups || !groups.length) {
+          $('#groupList').innerHTML = '<div class="hint">尚未建立分組。</div>';
+          $('#personGroup').innerHTML = '<option value=\"\">未分組</option>';
+          return;
+        }
+        $('#groupList').innerHTML = groups.map(g => `
+          <div class="listRow">
+            <div>
+              <div class="name">${esc(g.category)}｜${esc(g.groupName)}</div>
+              <div class="meta mono">${esc(g.groupId)}</div>
+            </div>
+            <div class="right">
+              <button class="danger" data-del-group="${esc(g.groupId)}">刪除</button>
+            </div>
+          </div>
+        `).join('');
+        $('#personGroup').innerHTML = '<option value=\"\">未分組</option>' + groups.map(g => `<option value=\"${esc(g.groupId)}\">${esc(g.category)}｜${esc(g.groupName)}</option>`).join('');
+        $all('[data-del-group]').forEach(btn => {
+          btn.addEventListener('click', async () => {
+            const groupId = btn.getAttribute('data-del-group');
+            if (!confirm('確定刪除分組？（需先移除綁定名單）')) return;
+            await api('adminDeleteGroup', { groupId });
+            await refreshGroupRoster();
+            setToast('已刪除分組');
+          });
+        });
+      }
+
+      function renderRoster(list){
+        if (!list || !list.length) {
+          $('#rosterList').innerHTML = '<div class="hint">尚未建立名單。</div>';
+          return;
+        }
+        $('#rosterList').innerHTML = list.map(p => `
+          <div class="listRow">
+            <div>
+              <div class="name">${esc(p.displayName)}</div>
+              <div class="meta mono">${esc(p.personId)}</div>
+            </div>
+            <div class="right">
+              <button class="secondary" data-toggle="${esc(p.personId)}">${p.enabled ? '停用' : '啟用'}</button>
+              <button class="danger" data-del-person="${esc(p.personId)}">刪除</button>
+            </div>
+          </div>
+        `).join('');
+        $all('[data-del-person]').forEach(btn => {
+          btn.addEventListener('click', async () => {
+            const personId = btn.getAttribute('data-del-person');
+            if (!confirm('確定刪除人員？')) return;
+            await api('adminDeleteRoster', { personId });
+            await refreshGroupRoster();
+            setToast('已刪除人員');
+          });
+        });
+        $all('[data-toggle]').forEach(btn => {
+          btn.addEventListener('click', async () => {
+            const personId = btn.getAttribute('data-toggle');
+            const hit = (window.__roster || []).find(x => x.personId === personId);
+            await api('adminUpdateRoster', { personId, enabled: !(hit && hit.enabled) });
+            await refreshGroupRoster();
+            setToast('已更新狀態');
+          });
+        });
+      }
+
+      function renderAttachments(list){
+        if (!list || !list.length) {
+          $('#attachList').innerHTML = '<div class="hint">目前沒有附件。</div>';
+          return;
+        }
+        $('#attachList').innerHTML = list.map(a => `
+          <div class="listRow">
+            <div>
+              <div class="name">${esc(a.title || '(未命名)')}</div>
+              <div class="meta">日期 ${esc(a.date)}　<a class="mono" href="${esc(a.driveUrl)}" target="_blank" rel="noreferrer">開啟</a></div>
+            </div>
+            <div class="right">
+              <button class="danger" data-del-attach="${esc(a.driveFileId)}" data-date="${esc(a.date)}">刪除</button>
+            </div>
+          </div>
+        `).join('');
+        $all('[data-del-attach]').forEach(btn => {
+          btn.addEventListener('click', async () => {
+            const driveFileId = btn.getAttribute('data-del-attach');
+            const date = btn.getAttribute('data-date');
+            if (!confirm('確定刪除附件（含 Drive 檔案）？')) return;
+            await api('adminDeleteDailyAttachment', { eventId: getSelectedEventId(), date, driveFileId });
+            await refreshAttachments();
+            setToast('已刪除附件');
+          });
+        });
+      }
+
+      async function refreshGroupRoster(){
+        const eventId = getSelectedEventId();
+        if (!eventId) return;
+        const groups = await api('adminListGroups', eventId);
+        window.__groups = groups;
+        renderGroups(groups);
+        const roster = await api('adminListRoster', eventId);
+        window.__roster = roster;
+        renderRoster(roster);
+      }
+
+      async function refreshAttachments(){
+        const eventId = getSelectedEventId();
+        if (!eventId) return;
+        const list = await api('adminListDailyAttachments', eventId);
+        renderAttachments(list);
+      }
+
+      $('#btnCreateEvent').addEventListener('click', createEvent);
+      $('#btnRefresh').addEventListener('click', async () => { await loadEvents(); setToast('已更新'); });
+      $('#btnOpen').addEventListener('click', () => setOpen(true));
+      $('#btnClose').addEventListener('click', () => setOpen(false));
+      $('#btnAddAdmin').addEventListener('click', async () => {
+        const email = $('#adminEmail').value.trim();
+        if (!email) return setToast('請先輸入 email。');
+        const res = await api('adminAddAdminEmail', { email });
+        $('#adminEmail').value = '';
+        renderAdmins(res.admins);
+        setToast('已新增共同管理員：' + email);
+      });
+      $('#eventSelect').addEventListener('change', () => {
+        const eventId = $('#eventSelect').value;
+        if (!eventId) return;
+        setLinks(eventId);
+        const events = window.__events || [];
+        const hit = events.find(e => e.eventId === eventId);
+        $('#eventFolderUrl').value = (hit && hit.driveFolderUrl) ? hit.driveFolderUrl : '';
+        $('#eventSettingsUrl').value = '';
+        refreshGroupRoster();
+        refreshAttachments();
+      });
+
+      $('#btnAddGroup').addEventListener('click', async () => {
+        const eventId = getSelectedEventId();
+        if (!eventId) return setToast('請先選擇活動。');
+        const category = $('#grpCategory').value.trim();
+        const groupName = $('#grpName').value.trim();
+        if (!category || !groupName) return setToast('請填寫分類與分組名稱。');
+        await api('adminCreateGroup', { eventId, category, groupName, sort: 0 });
+        $('#grpName').value = '';
+        await refreshGroupRoster();
+        setToast('已新增分組');
+      });
+
+      $('#btnAddPerson').addEventListener('click', async () => {
+        const eventId = getSelectedEventId();
+        if (!eventId) return setToast('請先選擇活動。');
+        const displayName = $('#personName').value.trim();
+        if (!displayName) return setToast('請填寫姓名。');
+        const groupId = $('#personGroup').value || '';
+        await api('adminCreateRoster', { eventId, groupId, displayName, sort: 0 });
+        $('#personName').value = '';
+        await refreshGroupRoster();
+        setToast('已新增人員');
+      });
+
+      $('#btnUploadAttach').addEventListener('click', async () => {
+        const eventId = getSelectedEventId();
+        if (!eventId) return setToast('請先選擇活動。');
+        const date = $('#attachDate').value;
+        if (!date) return setToast('請選擇日期。');
+        const title = $('#attachTitle').value.trim();
+        const file = ($('#attachFile').files || [])[0];
+        if (!file) return setToast('請選擇圖片檔案。');
+        const base64 = await new Promise((resolve, reject) => {
+          const reader = new FileReader();
+          reader.onload = () => resolve(String(reader.result || '').split(',')[1] || '');
+          reader.onerror = reject;
+          reader.readAsDataURL(file);
+        });
+        await api('adminUploadDailyAttachment', {
+          eventId, date, title,
+          fileName: file.name,
+          mimeType: file.type,
+          base64
+        });
+        $('#attachFile').value = '';
+        await refreshAttachments();
+        setToast('已上傳附件');
+      });
+
+      $('#btnRefreshAttach').addEventListener('click', refreshAttachments);
+
+      (async () => {
+        await loadEvents();
+        await loadAdmins();
+        setToast('管理頁就緒');
+      })();
+    </script>
+  </body>
+</html>
+

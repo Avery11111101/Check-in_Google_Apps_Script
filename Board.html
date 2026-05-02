@@ -1,0 +1,112 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <base target="_top">
+    <?!= include('app.css'); ?>
+  </head>
+  <body>
+    <div class="appBg">
+    <div class="container">
+      <div class="topbar">
+        <div>
+          <div class="title">即時簽到看板</div>
+          <div class="subtitle">未簽到 / 已簽到 / 已簽退（依分組排列）</div>
+        </div>
+        <div class="topActions">
+          <div id="topNav"></div>
+          <div class="badge mono" id="eventBadge"></div>
+          <div class="badge mono" id="pollBadge"></div>
+        </div>
+      </div>
+
+      <div class="grid" style="grid-template-columns: 1fr;">
+        <div class="card">
+          <div id="stats" class="statsBar">
+            <span>應到 <strong id="effectiveTotal">0</strong></span>
+            <span>/ 實到 <strong id="signedCount">0</strong></span>
+            <span>/ 未簽 <strong id="notYetCount">0</strong></span>
+            <span>（出席率 <strong id="attendanceRate">0%</strong>）</span>
+            <span class="badge mono" id="updatedAt"></span>
+          </div>
+
+          <div class="row" style="justify-content:center; margin-top:10px">
+            <div class="pill"><span class="dot not"></span><span>未簽到</span></div>
+            <div class="pill"><span class="dot ok"></span><span>已簽到</span></div>
+            <div class="pill"><span class="dot bad"></span><span>已簽退</span></div>
+          </div>
+
+          <div id="board"></div>
+          <div class="toast" id="toast"></div>
+        </div>
+      </div>
+    </div>
+    </div>
+
+    <?!= include('app.js'); ?>
+    <script>
+      const BOOT = <?= JSON.stringify(bootstrap) ?>;
+      document.getElementById('topNav').appendChild(renderTopbarNav(BOOT));
+      const POLL_SECONDS = Number(<?= JSON.stringify(PropertiesService.getScriptProperties().getProperty('POLL_SECONDS') || '3') ?>);
+
+      function setToast(msg){ $('#toast').textContent = msg || ''; }
+
+      function render(state){
+        $('#updatedAt').textContent = '更新 ' + fmtTs(state.now);
+        const groups = state.groups || [];
+        if (!groups.length){
+          $('#board').innerHTML = '<div class="hint" style="margin-top:10px">目前沒有名單。請到管理頁匯入名單與分組。</div>';
+          return;
+        }
+
+        let signed = 0, notYet = 0;
+        groups.forEach(g => (g.people || []).forEach(p => {
+          if (p.status === 'IN') signed++;
+          else notYet++;
+        }));
+        const total = signed + notYet;
+        $('#effectiveTotal').textContent = String(total);
+        $('#signedCount').textContent = String(signed);
+        $('#notYetCount').textContent = String(notYet);
+        const rate = total > 0 ? ((signed / total) * 100).toFixed(1) : '0.0';
+        $('#attendanceRate').textContent = rate + '%';
+
+        $('#board').innerHTML = groups.map(g => {
+          const peopleHtml = (g.people || []).map(p => {
+            const tagClass = p.status === 'IN' ? 'ok' : p.status === 'OUT' ? 'bad' : 'not';
+            return `
+              <div class="person">
+                <div>
+                  <div class="name">${esc(p.displayName)}</div>
+                  <div class="meta">${esc(p.category)} / ${esc(p.groupName)}　<span class="mono">${esc(p.lastTime ? fmtTs(p.lastTime) : '')}</span></div>
+                </div>
+                <div class="statusTag ${tagClass}">${esc(p.statusLabel)}</div>
+              </div>
+            `;
+          }).join('');
+          return `
+            <div class="groupTitle">${esc(g.category)}｜${esc(g.groupName)}</div>
+            <div class="boardCols">${peopleHtml}</div>
+          `;
+        }).join('');
+      }
+
+      async function tick(){
+        const eventId = BOOT.eventId || new URLSearchParams(location.search).get('eventId') || '';
+        if (!eventId) { setToast('缺少 eventId。'); return; }
+        $('#eventBadge').textContent = 'eventId ' + eventId;
+        $('#pollBadge').textContent = '輪詢 ' + POLL_SECONDS + 's';
+        try{
+          const state = await api('publicGetBoardState', eventId);
+          render(state);
+          setToast('');
+        }catch(e){
+          setToast(e && e.message ? e.message : String(e));
+        }
+      }
+
+      tick();
+      setInterval(tick, Math.max(2, POLL_SECONDS) * 1000);
+    </script>
+  </body>
+</html>
+
