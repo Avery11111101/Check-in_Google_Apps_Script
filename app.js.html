@@ -3,25 +3,116 @@
   function $all(sel){ return Array.from(document.querySelectorAll(sel)); }
   function esc(s){ return String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
 
+  /** 伺服端非同步寫入後，導覽與管理頁連結優先使用此值（與目前部署一致）。 */
+  function getPinnedExecBase(){
+    const p = (typeof window !== 'undefined' && window.__GAS_EXEC_BASE) ? String(window.__GAS_EXEC_BASE).trim() : '';
+    return p ? p.split(/[?#]/)[0].replace(/\/$/, '') : '';
+  }
+
+  function execBaseFromScriptGoogleUrl(u){
+    if (!u || u.hostname !== 'script.google.com') return '';
+    const p = u.pathname || '';
+    if (p.indexOf('/macros/') === -1 && p.indexOf('/d/') === -1) return '';
+    if (!/\/(exec|dev)(\/|$)/.test(p)) return '';
+    return u.origin + p.replace(/\/$/, '');
+  }
+
+  /** 網址列為 script.google.com/.../exec 時（極少數非 iframe 情境）。 */
+  function inferExecBaseFromLocation(){
+    try {
+      return execBaseFromScriptGoogleUrl(new URL(window.location.href));
+    } catch (_e) {
+      return '';
+    }
+  }
+
+  /** iframe 內為 googleusercontent… 時，外層 Web App 常在 document.referrer（應優先於 location）。 */
+  function inferExecBaseFromReferrer(){
+    const r = document.referrer || '';
+    if (!r) return '';
+    try {
+      return execBaseFromScriptGoogleUrl(new URL(r));
+    } catch (_e) {
+      return '';
+    }
+  }
+
+  function resolveWebAppBase(boot){
+    const pinned = getPinnedExecBase();
+    if (pinned) return pinned;
+    const fromRef = inferExecBaseFromReferrer();
+    if (fromRef) return fromRef;
+    const fromLoc = inferExecBaseFromLocation();
+    if (fromLoc) return fromLoc;
+    const s = (boot && boot.webAppUrl) ? String(boot.webAppUrl).trim() : '';
+    if (s) return s.split(/[?#]/)[0].replace(/\/$/, '');
+    return '';
+  }
+
   function buildAppLinks(boot){
-    const base = boot.webAppUrl;
-    const eventQ = boot.eventId ? ('&eventId=' + encodeURIComponent(boot.eventId)) : '';
+    const base = resolveWebAppBase(boot) || '';
+    const ev = boot.eventId ? ('&eventId=' + encodeURIComponent(boot.eventId)) : '';
+    if (base) {
+      return {
+        admin: base + '?page=admin',
+        checkin: base + '?page=checkin' + (boot.eventId ? ev : ''),
+        board: base + '?page=board' + (boot.eventId ? ev : ''),
+      };
+    }
     return {
-      admin: base + '?page=admin',
-      checkin: base + '?page=checkin' + (boot.eventId ? ('&eventId=' + encodeURIComponent(boot.eventId)) : ''),
-      board: base + '?page=board' + (boot.eventId ? ('&eventId=' + encodeURIComponent(boot.eventId)) : ''),
+      admin: '?page=admin',
+      checkin: '?page=checkin' + ev,
+      board: '?page=board' + ev,
     };
+  }
+
+  function navLinkTarget(boot){
+    return resolveWebAppBase(boot) ? '_top' : '_self';
+  }
+
+  function applyExecBaseToNav(base, boot){
+    const b = String(base || '').trim().split(/[?#]/)[0].replace(/\/$/, '');
+    if (!b) return;
+    window.__GAS_EXEC_BASE = b;
+    const ev = boot.eventId ? ('&eventId=' + encodeURIComponent(boot.eventId)) : '';
+    const map = {
+      admin: b + '?page=admin',
+      checkin: b + '?page=checkin' + (boot.eventId ? ev : ''),
+      board: b + '?page=board' + (boot.eventId ? ev : ''),
+    };
+    $all('.nav a[data-nav]').forEach(function(a){
+      const k = a.getAttribute('data-nav');
+      if (k && map[k]) {
+        a.href = map[k];
+        a.target = '_top';
+      }
+    });
+  }
+
+  /** iframe 內 referrer 常為空，改由伺服端 getUrl／WEB_APP_URL 補上正確 …/exec 再改導覽 href。 */
+  function refreshNavExecBaseFromServer(boot, onApplied){
+    google.script.run
+      .withSuccessHandler(function(url){
+        const u = (url && String(url).trim()) ? String(url).trim() : '';
+        if (u) {
+          applyExecBaseToNav(u, boot);
+          if (typeof onApplied === 'function') onApplied();
+        }
+      })
+      .withFailureHandler(function(){})
+      .getWebAppExecUrlForClient();
   }
 
   function renderTopbarNav(boot){
     const links = buildAppLinks(boot);
+    const tgt = navLinkTarget(boot);
     const current = (boot.page || '').toLowerCase();
     const nav = document.createElement('nav');
     nav.className = 'nav';
     nav.innerHTML = `
-      <a href="${esc(links.admin)}" ${current==='admin'?'aria-current="page"':''}>管理</a>
-      <a href="${esc(links.checkin)}" ${current==='checkin'?'aria-current="page"':''}>簽到</a>
-      <a href="${esc(links.board)}" ${current==='board'?'aria-current="page"':''}>看板</a>
+      <a data-nav="admin" href="${esc(links.admin)}" target="${esc(tgt)}" rel="noopener noreferrer" ${current==='admin'?'aria-current="page"':''}>管理</a>
+      <a data-nav="checkin" href="${esc(links.checkin)}" target="${esc(tgt)}" rel="noopener noreferrer" ${current==='checkin'?'aria-current="page"':''}>簽到</a>
+      <a data-nav="board" href="${esc(links.board)}" target="${esc(tgt)}" rel="noopener noreferrer" ${current==='board'?'aria-current="page"':''}>看板</a>
     `;
     return nav;
   }
@@ -42,4 +133,3 @@
     return d.toLocaleString('zh-TW', { hour12:false });
   }
 </script>
-

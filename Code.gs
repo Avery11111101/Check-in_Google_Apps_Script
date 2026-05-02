@@ -43,13 +43,39 @@ function esc(s) {
     .replace(/'/g, '&#39;');
 }
 
+/**
+ * Web App 的 /exec（或 /dev）根網址，供導覽與對外連結使用。
+ * HtmlService iframe 內有時 ScriptApp.getService().getUrl() 為空，故快取在指令碼屬性 WEB_APP_URL。
+ * 若仍為空，可於「專案設定 → 指令碼屬性」手動新增 WEB_APP_URL（完整 …/exec 前綴、不含查詢字串）。
+ */
+function getWebAppUrl_() {
+  const props = PropertiesService.getScriptProperties();
+  const cached = (props.getProperty('WEB_APP_URL') || '').trim();
+  try {
+    const u = ScriptApp.getService().getUrl();
+    if (u) {
+      const clean = String(u).split(/[?#]/)[0].replace(/\/$/, '');
+      props.setProperty('WEB_APP_URL', clean);
+      return clean;
+    }
+  } catch (e) {
+    // 未部署為 Web App 等
+  }
+  return cached ? String(cached).split(/[?#]/)[0].replace(/\/$/, '') : '';
+}
+
+/** 供前端 google.script.run 取得 /exec 網址；iframe 內 document.referrer 可能被政策清空。 */
+function getWebAppExecUrlForClient() {
+  return getWebAppUrl_();
+}
+
 function getBootstrap_(ctx) {
   const env = ensureInitialized_();
   return {
     version: APP.VERSION,
     page: ctx.page,
     eventId: ctx.eventId,
-    webAppUrl: ScriptApp.getService().getUrl(),
+    webAppUrl: getWebAppUrl_(),
     spreadsheetId: env.spreadsheetId,
     driveFolderId: env.driveFolderId,
     tz: Session.getScriptTimeZone(),

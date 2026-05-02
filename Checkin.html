@@ -74,6 +74,7 @@
     <script>
       const BOOT = <?= JSON.stringify(bootstrap) ?>;
       document.getElementById('topNav').appendChild(renderTopbarNav(BOOT));
+      refreshNavExecBaseFromServer(BOOT);
       let action = null; // IN | OUT
       let busy = false;
 

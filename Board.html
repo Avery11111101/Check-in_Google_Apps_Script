@@ -46,6 +46,7 @@
     <script>
       const BOOT = <?= JSON.stringify(bootstrap) ?>;
       document.getElementById('topNav').appendChild(renderTopbarNav(BOOT));
+      refreshNavExecBaseFromServer(BOOT);
       const POLL_SECONDS = Number(<?= JSON.stringify(PropertiesService.getScriptProperties().getProperty('POLL_SECONDS') || '3') ?>);
 
       function setToast(msg){ $('#toast').textContent = msg || ''; }

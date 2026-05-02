@@ -126,6 +126,11 @@
     <script>
       const BOOT = <?= JSON.stringify(bootstrap) ?>;
       document.getElementById('topNav').appendChild(renderTopbarNav(BOOT));
+      refreshNavExecBaseFromServer(BOOT, function(){
+        const sel = document.getElementById('eventSelect');
+        const id = sel && sel.value ? String(sel.value).trim() : '';
+        if (id) setLinks(id);
+      });
 
       function setToast(msg){ $('#toast').textContent = msg || ''; }
 
@@ -165,12 +170,12 @@
       }
 
       function setLinks(eventId){
-        const base = BOOT.webAppUrl;
-        const checkin = `${base}?page=checkin&eventId=${encodeURIComponent(eventId)}`;
-        const board = `${base}?page=board&eventId=${encodeURIComponent(eventId)}`;
+        const base = resolveWebAppBase(BOOT);
+        const checkin = (base ? base + '?page=checkin&eventId=' : '?page=checkin&eventId=') + encodeURIComponent(eventId);
+        const board = (base ? base + '?page=board&eventId=' : '?page=board&eventId=') + encodeURIComponent(eventId);
         $('#qrLink').value = checkin;
-        $('#boardLink').value = board;
-        $('#checkinLink').value = checkin;
+        const bl = $('#boardLink'); if (bl) bl.value = board;
+        const cl = $('#checkinLink'); if (cl) cl.value = checkin;
       }
 
       async function loadEvents(){
