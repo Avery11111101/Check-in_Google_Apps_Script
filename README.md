@@ -1,4 +1,4 @@
-# 電子簽到系統（Google Apps Script）
+# 電子簽到系統
 
 這是一套使用 **Google Apps Script Web App + Google Sheet + Google Drive** 的電子簽到系統，支援：
 
@@ -24,20 +24,20 @@ npm i -g @google/clasp
 clasp login
 ```
 
-2. 建立 Apps Script 專案並推上去
+1. 建立 Apps Script 專案並推上去
 
 ```bash
 clasp create --title "電子簽到系統" --type webapp
 clasp push
 ```
 
-3. 在 Apps Script 介面部署為 Web App
-   - 執行身分：**使用者存取應用程式**
-   - 存取權：看需求（測試可先用「任何知道連結的人」）
-
-4. 第一次授權與管理員
-   - 第一次開啟管理頁時會要求授權（Sheet/Drive/Email）
-   - 管理員白名單存於 `ADMIN_EMAILS`；管理頁可新增共同管理員 email
+1. 在 Apps Script 介面部署為 Web App
+  - 執行身分：**使用者存取應用程式**
+  - 存取權：看需求（測試可先用「任何知道連結的人」）
+2. 第一次授權與管理員
+  - 第一次開啟管理頁時會要求授權（Sheet/Drive/Email）
+  - 管理員白名單存於 `ADMIN_EMAILS`；管理頁可新增共同管理員 email
+  - 進入管理頁時伺服端會以**目前登入的 Google 帳號**比對白名單（**不分大小寫**）；非管理員會看到說明頁而非後台
 
 ## 入口
 
@@ -73,7 +73,11 @@ clasp push
 - **完成**：管理頁分組/名單 CRUD、每日附件圖片上傳/刪除（Drive + `DailyAttachments`）。
 - **UX**：三頁一致導覽（管理/簽到/看板），視覺改為更乾淨的深色系、元件與間距一致；看板加入統計列（應到/實到/未簽/出席率）。
 - **Drive**：根資料夾改為 `電子簽到_系統_…` 命名；活動資料夾改為 `電子簽到_{名稱}_{時間戳}`，並於同資料夾建立 `…_設定` 試算表範本；管理頁可複製建立當下的設定表連結。
-- **修正**：頂部導覽與管理頁 QR／簽到／看板連結一律導向 **`https://script.google.com/macros/s/…/exec?page=…`**（正式 Web App 網址）。`…googleusercontent.com/userCodeAppPanel?page=…` 僅為 iframe 內載入點，**不能**當成瀏覽器主網址使用，否則會空白。
-- **實作**：`getWebAppUrl_()` 使用 `ScriptApp.getService().getUrl()` 並寫入 **`WEB_APP_URL`** 快取。前端在 **HtmlService iframe**（`googleusercontent.com/userCodeAppPanel`）內時，`window.location` 不是 `script.google.com/.../exec`，且 **`document.referrer` 可能被 Referrer-Policy 清空**，相對連結 `?page=admin` 會錯留在 userCodeAppPanel。載入後會 **`google.script.run.getWebAppExecUrlForClient()`** 向伺服端取正確 `/exec` 並改寫導覽列；`resolveWebAppBase` 順序為：**伺服端釘選 `__GAS_EXEC_BASE`** → **referrer** → **location** → **bootstrap**。若仍失敗可手動設定 `WEB_APP_URL`。
-
+- **修正**：頂部導覽與管理頁 QR／簽到／看板連結一律導向 `**https://script.google.com/macros/s/…/exec?page=…`**（正式 Web App 網址）。`…googleusercontent.com/userCodeAppPanel?page=…` 僅為 iframe 內載入點，**不能**當成瀏覽器主網址使用，否則會空白。
+- **實作**：`getWebAppUrl_()` 使用 `ScriptApp.getService().getUrl()` 並寫入 `**WEB_APP_URL`** 快取。前端在 **HtmlService iframe**（`googleusercontent.com/userCodeAppPanel`）內時，`window.location` 不是 `script.google.com/.../exec`，且 `**document.referrer` 可能被 Referrer-Policy 清空**，相對連結 `?page=admin` 會錯留在 userCodeAppPanel。載入後會 `**google.script.run.getWebAppExecUrlForClient()`** 向伺服端取正確 `/exec` 並改寫導覽列；`resolveWebAppBase` 順序為：**伺服端釘選 `__GAS_EXEC_BASE`** → **referrer** → **location** → **bootstrap**。若仍失敗可手動設定 `WEB_APP_URL`。
+- **修正**：管理頁載入活動清單失敗時，錯誤曾被後續「管理頁就緒」Toast 蓋掉，且文案寫「請看上方」但訊息實際在下方。改為**選單下方固定錯誤區**顯示完整原因、僅在全部初始化成功時顯示「管理頁就緒」；並新增 `formatApiError` 統一顯示 `google.script.run` 錯誤。
+- **權限**：`doGet` 開啟管理頁前若未通過管理員驗證，改回傳可讀的 HTML 說明（非匿名錯誤頁）；`requireAdmin_` 改為**不分大小寫**比對 email。
+- **修正**：`adminListEvents` 改回傳 `{ ok, events }`（並將試算表日期欄轉成字串），避免 `google.script.run` 序列化陣列在客戶端變成 `null` 而觸發 `Cannot read properties of null (reading 'map')`；管理頁 `loadEvents` 另做防呆。
+- **UX**：未登入 Google 即開啟管理頁時，錯誤頁提供 **「由此登入 Google 帳號」** 按鈕（`target="_top"`，`continue` 導回管理頁）；若尚無快取的 Web App 網址則僅導向 Google 登入頁。
+- **復原**：若指令碼屬性中的 **`DRIVE_FOLDER_ID`（根資料夾）** 或 **`SPREADSHEET_ID`（主試算表）** 已在雲端硬碟被刪除或無權限，`ensureInitialized_`／`getDb_` 會**清除失效 ID 並自動新建**根資料夾與主試算表、重新初始化工作表（`ADMIN_EMAILS` 等仍留在指令碼屬性；活動／名單等**表內資料**會是新的空庫）。
 

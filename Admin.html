@@ -29,6 +29,7 @@
           <div class="field">
             <label>選擇活動</label>
             <select id="eventSelect"><option value="">載入中…</option></select>
+            <div id="eventLoadError" class="banner-error" style="display:none" role="alert"></div>
           </div>
           <div class="field">
             <label>QR Code 連結</label>
@@ -132,7 +133,24 @@
         if (id) setLinks(id);
       });
 
-      function setToast(msg){ $('#toast').textContent = msg || ''; }
+      function setToast(msg, opts){
+        const el = $('#toast');
+        if (!el) return;
+        el.textContent = msg || '';
+        el.classList.toggle('toast--error', !!(opts && opts.error));
+      }
+
+      function setEventLoadError(msg){
+        const el = $('#eventLoadError');
+        if (!el) return;
+        if (msg) {
+          el.textContent = msg;
+          el.style.display = 'block';
+        } else {
+          el.textContent = '';
+          el.style.display = 'none';
+        }
+      }
 
       function renderAdmins(admins){
         if (!admins || !admins.length) {
@@ -165,8 +183,16 @@
       }
 
       async function loadAdmins(){
-        const res = await api('adminListAdmins');
-        renderAdmins(res.admins);
+        try{
+          const res = await api('adminListAdmins');
+          renderAdmins(res.admins);
+          return true;
+        }catch(e){
+          const msg = formatApiError(e);
+          setToast(msg, { error: true });
+          $('#adminList').innerHTML = '<div class="banner-error" style="display:block">' + esc(msg) + '</div>';
+          return false;
+        }
       }
 
       function setLinks(eventId){
@@ -178,14 +204,27 @@
         const cl = $('#checkinLink'); if (cl) cl.value = checkin;
       }
 
+      function normalizeAdminListEvents_(raw){
+        if (raw && Array.isArray(raw.events)) return raw.events;
+        if (Array.isArray(raw)) return raw;
+        return [];
+      }
+
       async function loadEvents(){
         try{
-          const events = await api('adminListEvents');
+          const raw = await api('adminListEvents');
+          const events = normalizeAdminListEvents_(raw);
           window.__events = events;
+          setEventLoadError('');
+          setToast('', { error: false });
           $('#eventSelect').innerHTML = '<option value=\"\">請選擇</option>' + events.map(e => `<option value=\"${esc(e.eventId)}\">${esc(e.name)}</option>`).join('');
+          return true;
         }catch(e){
-          setToast(e && e.message ? e.message : String(e));
-          $('#eventSelect').innerHTML = '<option value=\"\">載入失敗（請看上方訊息）</option>';
+          const msg = formatApiError(e);
+          setEventLoadError(msg);
+          setToast(msg, { error: true });
+          $('#eventSelect').innerHTML = '<option value=\"\">載入失敗（原因見下方說明）</option>';
+          return false;
         }
       }
 
@@ -325,7 +364,10 @@
       }
 
       $('#btnCreateEvent').addEventListener('click', createEvent);
-      $('#btnRefresh').addEventListener('click', async () => { await loadEvents(); setToast('已更新'); });
+      $('#btnRefresh').addEventListener('click', async () => {
+        const ok = await loadEvents();
+        if (ok) setToast('已更新', { error: false });
+      });
       $('#btnOpen').addEventListener('click', () => setOpen(true));
       $('#btnClose').addEventListener('click', () => setOpen(false));
       $('#btnAddAdmin').addEventListener('click', async () => {
@@ -400,9 +442,11 @@
       $('#btnRefreshAttach').addEventListener('click', refreshAttachments);
 
       (async () => {
-        await loadEvents();
-        await loadAdmins();
-        setToast('管理頁就緒');
+        const eventsOk = await loadEvents();
+        const adminsOk = await loadAdmins();
+        if (eventsOk && adminsOk) {
+          setToast('管理頁就緒', { error: false });
+        }
       })();
     </script>
   </body>

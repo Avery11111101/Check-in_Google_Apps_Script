@@ -126,6 +126,15 @@
     });
   }
 
+  /** google.script.run 失敗回呼常帶 message；統一成可讀字串供 Toast／錯誤區顯示。 */
+  function formatApiError(err){
+    if (err == null) return '發生未知錯誤。';
+    if (typeof err === 'string') return err;
+    const m = err.message != null ? String(err.message) : '';
+    if (m) return m;
+    try { return JSON.stringify(err); } catch (_e) { return String(err); }
+  }
+
   function fmtTs(ts){
     if (!ts) return '';
     const d = new Date(ts);

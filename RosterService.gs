@@ -1,3 +1,9 @@
+function cellToPlain_(v) {
+  if (v instanceof Date) return Utilities.formatDate(v, Session.getScriptTimeZone(), 'yyyy-MM-dd HH:mm:ss');
+  if (v === null || v === undefined) return '';
+  return String(v);
+}
+
 function adminListEvents() {
   requireAdmin_();
   const ss = getDb_();
@@ -10,15 +16,17 @@ function adminListEvents() {
     out.push({
       eventId: String(r[0]),
       name: String(r[1] || ''),
-      startAt: r[2] || '',
-      endAt: r[3] || '',
+      startAt: cellToPlain_(r[2]),
+      endAt: cellToPlain_(r[3]),
       isOpen: String(r[4] || '') === 'TRUE' || r[4] === true,
       driveFolderId: String(r[5] || ''),
       driveFolderUrl: String(r[6] || ''),
-      createdAt: r[7] || '',
+      createdAt: cellToPlain_(r[7]),
     });
   }
-  return out.sort((a, b) => String(b.createdAt).localeCompare(String(a.createdAt)));
+  out.sort((a, b) => String(b.createdAt).localeCompare(String(a.createdAt)));
+  /** 包成物件：google.script.run 序列化「純陣列」在部分情境下客戶端會變成 null，導致 .map 失敗。 */
+  return { ok: true, events: out };
 }
 
 function adminCreateEvent(payload) {
