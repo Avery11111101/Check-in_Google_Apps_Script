@@ -80,4 +80,5 @@ clasp push
 - **修正**：`adminListEvents` 改回傳 `{ ok, events }`（並將試算表日期欄轉成字串），避免 `google.script.run` 序列化陣列在客戶端變成 `null` 而觸發 `Cannot read properties of null (reading 'map')`；管理頁 `loadEvents` 另做防呆。
 - **UX**：未登入 Google 即開啟管理頁時，錯誤頁提供 **「由此登入 Google 帳號」** 按鈕（`target="_top"`，`continue` 導回管理頁）；若尚無快取的 Web App 網址則僅導向 Google 登入頁。
 - **復原**：若指令碼屬性中的 **`DRIVE_FOLDER_ID`（根資料夾）** 或 **`SPREADSHEET_ID`（主試算表）** 已在雲端硬碟被刪除或無權限，`ensureInitialized_`／`getDb_` 會**清除失效 ID 並自動新建**根資料夾與主試算表、重新初始化工作表（`ADMIN_EMAILS` 等仍留在指令碼屬性；活動／名單等**表內資料**會是新的空庫）。
+- **管理**：名單區新增「開啟設定試算表（名單）」按鈕；伺服端 `adminGetEventSettingsSheetEditUrl` 依活動 `driveFolderId` 在資料夾內尋找檔名含 `_設定` 的試算表（多筆時取最近修改），組出含 `#gid` 的編輯網址以開啟「名單」工作表。簽到資料仍以主試算表 `Roster`／管理頁維護為準，設定表不會自動匯入後台。
 

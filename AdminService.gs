@@ -130,3 +130,55 @@ function adminDeleteRoster(payload) {
   throw new Error('找不到人員。');
 }
 
+function getEventDriveFolderId_(eventId) {
+  const ss = getDb_();
+  const sh = ss.getSheetByName(SHEETS.EVENTS);
+  const rows = sh.getDataRange().getValues();
+  for (let i = 1; i < rows.length; i++) {
+    if (String(rows[i][0]) !== String(eventId)) continue;
+    const id = String(rows[i][5] || '').trim();
+    if (!id) throw new Error('此活動缺少雲端資料夾 ID，無法尋找設定試算表。');
+    return id;
+  }
+  throw new Error('找不到活動。');
+}
+
+function findEventSettingsSpreadsheetIdInFolder_(folderId) {
+  const folder = DriveApp.getFolderById(folderId);
+  const it = folder.getFiles();
+  const candidates = [];
+  while (it.hasNext()) {
+    const f = it.next();
+    if (f.getMimeType() !== MimeType.GOOGLE_SHEETS) continue;
+    if (String(f.getName()).indexOf('_設定') === -1) continue;
+    candidates.push(f);
+  }
+  if (!candidates.length) {
+    throw new Error('在活動資料夾內找不到檔名含「_設定」的試算表，請從「活動雲端資料夾」確認檔案是否存在。');
+  }
+  candidates.sort(function (a, b) {
+    return b.getLastUpdated().getTime() - a.getLastUpdated().getTime();
+  });
+  return candidates[0].getId();
+}
+
+/**
+ * 回傳活動設定試算表（資料夾內檔名含 _設定）指定工作表的編輯網址（含 #gid）。
+ * 多個符合檔名時取最近修改的一筆。
+ */
+function adminGetEventSettingsSheetEditUrl(payload) {
+  requireAdmin_();
+  const eventId = String((payload && payload.eventId) || '').trim();
+  if (!eventId) throw new Error('缺少 eventId。');
+  const sheetName = String((payload && payload.sheetName) || '名單').trim() || '名單';
+
+  const folderId = getEventDriveFolderId_(eventId);
+  const fileId = findEventSettingsSpreadsheetIdInFolder_(folderId);
+  const ss = SpreadsheetApp.openById(fileId);
+  const sh = ss.getSheetByName(sheetName);
+  if (!sh) throw new Error('設定試算表內找不到工作表「' + sheetName + '」。');
+  const gid = sh.getSheetId();
+  const url = 'https://docs.google.com/spreadsheets/d/' + fileId + '/edit#gid=' + gid;
+  return { ok: true, url: url };
+}
+

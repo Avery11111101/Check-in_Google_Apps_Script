@@ -95,6 +95,10 @@
               <select id="personGroup" style="flex:1"></select>
               <button id="btnAddPerson">新增</button>
             </div>
+            <div class="row" style="width:100%;margin-top:8px">
+              <button id="btnOpenSettingsRosterSheet" type="button" class="secondary">開啟設定試算表（名單）</button>
+            </div>
+            <div class="hint">會開啟活動資料夾內檔名含「_設定」的試算表並切到「名單」工作表，欄位格式與範本一致。簽到仍以本頁／主資料庫名單為準；試算表內容不會自動同步回後台。</div>
           </div>
           <div id="rosterList" class="list">請先選擇活動。</div>
         </div>
@@ -412,6 +416,19 @@
         $('#personName').value = '';
         await refreshGroupRoster();
         setToast('已新增人員');
+      });
+
+      $('#btnOpenSettingsRosterSheet').addEventListener('click', async () => {
+        const eventId = getSelectedEventId();
+        if (!eventId) return setToast('請先選擇活動。');
+        try {
+          const res = await api('adminGetEventSettingsSheetEditUrl', { eventId, sheetName: '名單' });
+          const url = res && res.url ? String(res.url).trim() : '';
+          if (!url) return setToast('未取得試算表網址。', { error: true });
+          window.open(url, '_blank', 'noopener,noreferrer');
+        } catch (e) {
+          setToast(formatApiError(e), { error: true });
+        }
       });
 
       $('#btnUploadAttach').addEventListener('click', async () => {
