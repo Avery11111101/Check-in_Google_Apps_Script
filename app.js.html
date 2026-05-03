@@ -141,4 +141,43 @@
     if (isNaN(d.getTime())) return String(ts);
     return d.toLocaleString('zh-TW', { hour12:false });
   }
+
+  /** 與管理頁 setLinks 相同規則的簽到網址（需已 resolve exec base 時才含完整網域）。 */
+  function buildCheckinUrl(boot, eventId){
+    const id = String(eventId || '').trim();
+    if (!id) return '';
+    const base = resolveWebAppBase(boot || {});
+    const path = '?page=checkin&eventId=' + encodeURIComponent(id);
+    return base ? (base + path) : path;
+  }
+
+  /**
+   * 在 host 元素內繪製 QR（使用專案內嵌的 qrcodejs）。
+   * @param {HTMLElement} hostEl 空容器（例如 div.qrBox）
+   * @param {string} text 要編碼的文字／網址
+   * @param {number} sizePx 寬高像素
+   */
+  function renderQrInHost(hostEl, text, sizePx){
+    if (!hostEl) return;
+    while (hostEl.firstChild) hostEl.removeChild(hostEl.firstChild);
+    const t = String(text || '').trim();
+    if (!t) return;
+    if (typeof QRCode === 'undefined') {
+      hostEl.textContent = '無法載入 QR 程式庫。';
+      return;
+    }
+    try {
+      var level = QRCode.CorrectLevel && QRCode.CorrectLevel.M != null ? QRCode.CorrectLevel.M : 0;
+      new QRCode(hostEl, {
+        text: t,
+        width: sizePx,
+        height: sizePx,
+        colorDark: '#000000',
+        colorLight: '#ffffff',
+        correctLevel: level
+      });
+    } catch (_e) {
+      hostEl.textContent = '無法產生 QR。';
+    }
+  }
 </script>

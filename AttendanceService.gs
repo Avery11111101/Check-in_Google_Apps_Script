@@ -16,6 +16,7 @@ function publicSubmitAttendance(payload) {
     assertPersonInEvent_(eventId, personId);
 
     const now = new Date();
+    const serverTimeStr = cellToPlain_(now);
     const last = getStatus_(eventId, personId);
     const minMs = 15 * 1000;
     if (last.lastTime && (now.getTime() - new Date(last.lastTime).getTime()) < minMs) {
@@ -24,15 +25,15 @@ function publicSubmitAttendance(payload) {
 
     // 防重複：同狀態重送不寫 log
     if (action === 'IN' && last.status === 'IN') {
-      return { ok: true, serverTime: now, deduped: true, status: 'IN' };
+      return { ok: true, serverTime: serverTimeStr, deduped: true, status: 'IN' };
     }
     if (action === 'OUT' && last.status === 'OUT') {
-      return { ok: true, serverTime: now, deduped: true, status: 'OUT' };
+      return { ok: true, serverTime: serverTimeStr, deduped: true, status: 'OUT' };
     }
 
     writeLog_(eventId, personId, action, now, font, clientMeta);
     setStatus_(eventId, personId, action, now);
-    return { ok: true, serverTime: now, status: action };
+    return { ok: true, serverTime: serverTimeStr, status: action };
   } finally {
     lock.releaseLock();
   }
@@ -40,11 +41,13 @@ function publicSubmitAttendance(payload) {
 
 function publicGetPersonStatus(eventId, personId) {
   const s = getStatus_(eventId, personId);
+  /** 一律為純字串，避免 HtmlService 序列化含 Date 時整包變 null（客戶端讀不到 status）。 */
+  const lastTimeStr = cellToPlain_(s.lastTime);
   return {
     ok: true,
-    status: s.status,
-    statusLabel: statusLabel_(s.status),
-    lastTime: s.lastTime || '',
+    status: String(s.status || 'NOT_YET'),
+    statusLabel: String(statusLabel_(s.status)),
+    lastTime: lastTimeStr,
   };
 }
 
@@ -89,7 +92,7 @@ function getStatus_(eventId, personId) {
     const r = rows[i];
     if (String(r[0]) === String(eventId) && String(r[1]) === String(personId)) {
       const st = String(r[2] || 'NOT_YET');
-      return { status: st, lastTime: r[3] || '' };
+      return { status: st, lastTime: cellToPlain_(r[3]) };
     }
   }
   return { status: 'NOT_YET', lastTime: '' };

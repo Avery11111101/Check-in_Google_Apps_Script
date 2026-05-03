@@ -1,3 +1,23 @@
+/** 看板用：匿名可讀活動 id／名稱／是否開放簽到（不含 Drive 連結）。 */
+function publicListBoardEvents() {
+  const ss = getDb_();
+  const sh = ss.getSheetByName(SHEETS.EVENTS);
+  const rows = sh.getDataRange().getValues();
+  const out = [];
+  for (let i = 1; i < rows.length; i++) {
+    const r = rows[i];
+    if (!r[0]) continue;
+    out.push({
+      eventId: String(r[0]),
+      name: String(r[1] || ''),
+      isOpen: String(r[4] || '') === 'TRUE' || r[4] === true,
+      createdAt: cellToPlain_(r[7]),
+    });
+  }
+  out.sort((a, b) => String(b.createdAt).localeCompare(String(a.createdAt)));
+  return { ok: true, events: out };
+}
+
 function publicGetBoardState(eventId) {
   const ss = getDb_();
   const shGroups = ss.getSheetByName(SHEETS.GROUPS);
@@ -37,7 +57,7 @@ function publicGetBoardState(eventId) {
     if (String(r[0]) !== String(eventId)) continue;
     const personId = String(r[1] || '');
     if (!personId) continue;
-    statusMap.set(eventId + '::' + personId, { status: String(r[2] || 'NOT_YET'), lastTime: r[3] || '' });
+    statusMap.set(eventId + '::' + personId, { status: String(r[2] || 'NOT_YET'), lastTime: cellToPlain_(r[3]) });
   }
 
   const peopleByGroup = new Map(); // groupId -> []
@@ -57,7 +77,7 @@ function publicGetBoardState(eventId) {
       groupName: g.groupName,
       status: st.status,
       statusLabel: statusLabel_(st.status),
-      lastTime: st.lastTime || '',
+      lastTime: st.lastTime ? String(st.lastTime) : '',
       sort,
     };
     if (!peopleByGroup.has(groupId)) peopleByGroup.set(groupId, []);
@@ -82,6 +102,7 @@ function publicGetBoardState(eventId) {
     });
   }
 
-  return { ok: true, now: new Date(), groups: outGroups };
+  /** `now` 用字串避免 HtmlService 客戶端序列化含 Date 物件時整包變 null。 */
+  return { ok: true, now: cellToPlain_(new Date()), groups: outGroups };
 }
 

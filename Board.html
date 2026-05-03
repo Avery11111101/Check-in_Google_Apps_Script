@@ -3,6 +3,7 @@
   <head>
     <base target="_top">
     <?!= include('app.css'); ?>
+    <?!= include('qrlib.js'); ?>
   </head>
   <body>
     <div class="appBg">
@@ -21,6 +22,17 @@
 
       <div class="grid" style="grid-template-columns: 1fr;">
         <div class="card">
+          <div class="boardToolbar field">
+            <label for="boardEventSelect">選擇活動</label>
+            <select id="boardEventSelect"><option value="">載入中…</option></select>
+          </div>
+
+          <div class="boardQrHero">
+            <div class="boardQrTitle">掃碼簽到</div>
+            <div id="boardQrHost" class="qrBox qrBox--board"></div>
+            <div id="boardQrHint" class="hint boardQrHint"></div>
+          </div>
+
           <div id="stats" class="statsBar">
             <span>應到 <strong id="effectiveTotal">0</strong></span>
             <span>/ 實到 <strong id="signedCount">0</strong></span>
@@ -46,13 +58,57 @@
     <script>
       const BOOT = <?= JSON.stringify(bootstrap) ?>;
       document.getElementById('topNav').appendChild(renderTopbarNav(BOOT));
-      refreshNavExecBaseFromServer(BOOT);
       const POLL_SECONDS = Number(<?= JSON.stringify(PropertiesService.getScriptProperties().getProperty('POLL_SECONDS') || '3') ?>);
+      /** 看板實際輪詢間隔（秒）：不低於 5 秒，減輕試算表讀取頻率。 */
+      const BOARD_POLL_SECONDS = Math.max(5, POLL_SECONDS);
+      const BOARD_QR_PX = 360;
+
+      let boardEventId = String(BOOT.eventId || new URLSearchParams(location.search).get('eventId') || '').trim();
+      let pollTimer = null;
+      let tickBusy = false;
 
       function setToast(msg){ $('#toast').textContent = msg || ''; }
 
+      function paintBoardQr(){
+        const host = $('#boardQrHost');
+        const hint = $('#boardQrHint');
+        const url = buildCheckinUrl(BOOT, boardEventId);
+        if (!boardEventId || !url) {
+          renderQrInHost(host, '', BOARD_QR_PX);
+          if (hint) hint.textContent = '請先從上方選擇活動，即可顯示簽到 QR。';
+          return;
+        }
+        if (hint) hint.textContent = '';
+        renderQrInHost(host, url, BOARD_QR_PX);
+      }
+
+      function syncBoardUrl(){
+        try {
+          const u = new URL(window.location.href);
+          u.searchParams.set('page', 'board');
+          if (boardEventId) u.searchParams.set('eventId', boardEventId);
+          else u.searchParams.delete('eventId');
+          history.replaceState(null, '', u.pathname + u.search + u.hash);
+        } catch (_e) {}
+      }
+
+      function renderEmptyBoard(msg){
+        $('#effectiveTotal').textContent = '0';
+        $('#signedCount').textContent = '0';
+        $('#notYetCount').textContent = '0';
+        $('#attendanceRate').textContent = '0.0%';
+        $('#updatedAt').textContent = '';
+        $('#board').innerHTML = '<div class="hint" style="margin-top:10px">' + esc(msg || '') + '</div>';
+      }
+
       function render(state){
-        $('#updatedAt').textContent = '更新 ' + fmtTs(state.now);
+        if (!state || typeof state !== 'object') {
+          $('#updatedAt').textContent = '';
+          $('#board').innerHTML = '<div class="hint" style="margin-top:10px">無法載入看板資料（請重新整理或稍後再試）。</div>';
+          return;
+        }
+        var ts = (state.now != null && String(state.now) !== '') ? fmtTs(state.now) : '—';
+        $('#updatedAt').textContent = '更新 ' + ts;
         const groups = state.groups || [];
         if (!groups.length){
           $('#board').innerHTML = '<div class="hint" style="margin-top:10px">目前沒有名單。請到管理頁匯入名單與分組。</div>';
@@ -92,12 +148,21 @@
       }
 
       async function tick(){
-        const eventId = BOOT.eventId || new URLSearchParams(location.search).get('eventId') || '';
-        if (!eventId) { setToast('缺少 eventId。'); return; }
-        $('#eventBadge').textContent = 'eventId ' + eventId;
-        $('#pollBadge').textContent = '輪詢 ' + POLL_SECONDS + 's';
+        if (!boardEventId) {
+          setToast('請選擇活動。');
+          renderEmptyBoard('請先從上方選擇活動。');
+          $('#eventBadge').textContent = '未選活動';
+          $('#pollBadge').textContent = '輪詢 ' + BOARD_POLL_SECONDS + 's';
+          return;
+        }
+        $('#eventBadge').textContent = 'eventId ' + boardEventId;
+        $('#pollBadge').textContent = '輪詢 ' + BOARD_POLL_SECONDS + 's';
         try{
-          const state = await api('publicGetBoardState', eventId);
+          const state = await api('publicGetBoardState', boardEventId);
+          if (!state || typeof state !== 'object') {
+            setToast('看板資料回傳異常，請重新整理頁面。');
+            return;
+          }
           render(state);
           setToast('');
         }catch(e){
@@ -105,8 +170,99 @@
         }
       }
 
-      tick();
-      setInterval(tick, Math.max(2, POLL_SECONDS) * 1000);
+      function pollDelayMs(){
+        var base = BOARD_POLL_SECONDS * 1000;
+        if (typeof document !== 'undefined' && document.visibilityState === 'hidden') return base * 3;
+        return base;
+      }
+
+      function scheduleBoardPoll(){
+        if (pollTimer) clearTimeout(pollTimer);
+        pollTimer = setTimeout(runBoardPollLoop, pollDelayMs());
+      }
+
+      async function runBoardPollLoop(){
+        if (tickBusy) {
+          scheduleBoardPoll();
+          return;
+        }
+        tickBusy = true;
+        try {
+          await tick();
+        } finally {
+          tickBusy = false;
+          scheduleBoardPoll();
+        }
+      }
+
+      function refreshNavExecBaseFromServerAsync(boot){
+        return new Promise(function(resolve){
+          google.script.run
+            .withSuccessHandler(function(url){
+              var u = (url && String(url).trim()) ? String(url).trim() : '';
+              if (u && typeof applyExecBaseToNav === 'function') applyExecBaseToNav(u, boot);
+              resolve(u);
+            })
+            .withFailureHandler(function(){ resolve(''); })
+            .getWebAppExecUrlForClient();
+        });
+      }
+
+      async function loadBoardEvents(){
+        const sel = $('#boardEventSelect');
+        try {
+          const raw = await api('publicListBoardEvents');
+          const events = (raw && raw.events) ? raw.events : [];
+          sel.innerHTML = '<option value=\"\">請選擇活動</option>' + events.map(function(e){
+            const label = (e.name || e.eventId) + (e.isOpen ? '' : '（未開放簽到）');
+            return '<option value=\"' + esc(e.eventId) + '\">' + esc(label) + '</option>';
+          }).join('');
+          if (boardEventId && events.some(function(x){ return x.eventId === boardEventId; })) {
+            sel.value = boardEventId;
+          } else if (events.length === 1) {
+            boardEventId = String(events[0].eventId || '').trim();
+            sel.value = boardEventId;
+          } else {
+            if (boardEventId && !events.some(function(x){ return x.eventId === boardEventId; })) {
+              boardEventId = '';
+              sel.value = '';
+            }
+          }
+          syncBoardUrl();
+          BOOT.eventId = boardEventId;
+          var pinnedAfter = typeof getPinnedExecBase === 'function' ? getPinnedExecBase() : '';
+          if (pinnedAfter && typeof applyExecBaseToNav === 'function') applyExecBaseToNav(pinnedAfter, BOOT);
+          paintBoardQr();
+        } catch (e) {
+          sel.innerHTML = '<option value=\"\">載入失敗</option>';
+          setToast(e && e.message ? e.message : String(e));
+        }
+      }
+
+      $('#boardEventSelect').addEventListener('change', async function(){
+        boardEventId = String($('#boardEventSelect').value || '').trim();
+        BOOT.eventId = boardEventId;
+        var pinned = typeof getPinnedExecBase === 'function' ? getPinnedExecBase() : '';
+        if (pinned && typeof applyExecBaseToNav === 'function') applyExecBaseToNav(pinned, BOOT);
+        syncBoardUrl();
+        paintBoardQr();
+        await tick();
+      });
+
+      document.addEventListener('visibilitychange', function(){
+        if (document.visibilityState === 'visible') {
+          if (pollTimer) clearTimeout(pollTimer);
+          pollTimer = setTimeout(runBoardPollLoop, 0);
+        }
+      });
+
+      (async function(){
+        await refreshNavExecBaseFromServerAsync(BOOT);
+        paintBoardQr();
+        await loadBoardEvents();
+        await tick();
+        scheduleBoardPoll();
+      })();
     </script>
   </body>
 </html>

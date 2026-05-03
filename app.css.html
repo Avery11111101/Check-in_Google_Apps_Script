@@ -64,6 +64,41 @@
   button.secondary{ background: rgba(255,255,255,.06); }
   button.danger{ background: rgba(255,90,95,.16); }
   button:disabled{ opacity:.5; cursor:not-allowed; }
+  /** 管理頁：簽到開關與目前狀態對應的按鈕強調 */
+  button.toggle-active-open{
+    background: rgba(52,195,122,.30);
+    border-color: rgba(52,195,122,.48);
+    box-shadow: inset 0 0 0 1px rgba(52,195,122,.12);
+  }
+  button.toggle-active-close{
+    background: rgba(255,159,26,.24);
+    border-color: rgba(255,159,26,.48);
+    box-shadow: inset 0 0 0 1px rgba(255,159,26,.12);
+  }
+  button.toggle-inactive{
+    opacity: .58;
+    background: rgba(255,255,255,.05);
+  }
+  /** 簽到頁：已選簽到／簽退 */
+  button.action-selected-in{
+    background: rgba(52,195,122,.30);
+    border-color: rgba(52,195,122,.48);
+    box-shadow: inset 0 0 0 1px rgba(52,195,122,.12);
+  }
+  button.action-selected-out{
+    background: rgba(255,159,26,.24);
+    border-color: rgba(255,159,26,.48);
+    box-shadow: inset 0 0 0 1px rgba(255,159,26,.12);
+  }
+  button.action-unselected{
+    opacity: .58;
+    background: rgba(255,255,255,.05);
+  }
+  .openStatusPill{
+    margin-top:10px;
+    align-self:flex-start;
+  }
+  .openStatusPill strong{ font-weight:800; color: rgba(242,245,255,.95); }
   .pill{ display:inline-flex; align-items:center; gap:8px; padding:8px 10px; border:1px solid var(--border); border-radius:999px; background:rgba(16,19,29,.70); }
   .dot{ width:10px; height:10px; border-radius:999px; background:var(--not); }
   .dot.ok{ background:var(--ok); } .dot.warn{ background:var(--warn); } .dot.bad{ background:var(--bad); }
@@ -136,6 +171,41 @@
   .statusTag.bad{ color:rgba(255,93,93,.95); background: rgba(255,93,93,.12); }
   .statusTag.not{ color:rgba(106,123,184,.95); background: rgba(106,123,184,.12); }
   .groupTitle{ margin:10px 0 6px; font-size:13px; color:rgba(232,238,255,.92); font-weight:750; }
+
+  /* QR */
+  .qrBox{
+    display:inline-block;
+    margin-top:8px;
+    padding:12px;
+    border-radius:12px;
+    background:#fff;
+    border:1px solid rgba(0,0,0,.08);
+    line-height:0;
+  }
+  .qrBox img, .qrBox canvas{ display:block; }
+  .qrBox--board img, .qrBox--board canvas{
+    max-width:min(72vw, 420px);
+    width:100%;
+    height:auto;
+  }
+  .boardToolbar{ margin-top:0; }
+  .boardQrHero{
+    margin-top:12px;
+    margin-bottom:14px;
+    padding:14px;
+    border-radius:14px;
+    border:1px solid var(--border);
+    background: rgba(16,19,29,.55);
+    text-align:center;
+  }
+  .boardQrTitle{
+    font-size:14px;
+    font-weight:800;
+    color: rgba(242,245,255,.92);
+    margin-bottom:10px;
+    letter-spacing:.2px;
+  }
+  .boardQrHint{ margin-top:10px; }
 
   /* board stats */
   .statsBar{

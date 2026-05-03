@@ -22,29 +22,28 @@
         <div class="card">
           <h2>簽到資訊</h2>
           <div class="field">
-            <label>活動（eventId）</label>
-            <input id="eventId" placeholder="例如：evt_xxx" value="<?= esc(bootstrap.eventId) ?>" <?= bootstrap.eventId ? 'readonly' : '' ?>>
-            <div class="hint">通常會由 QR Code 自動帶入；若你是手動開啟，請輸入活動 eventId。</div>
-          </div>
-
-          <div class="field">
-            <label>姓名（從名單選擇）</label>
-            <select id="personSelect">
+            <label for="eventSelect">活動名稱</label>
+            <select id="eventSelect">
               <option value="">載入中…</option>
             </select>
+            <div id="eventHint" class="hint"></div>
           </div>
 
           <div class="field">
-            <label>字體 / 字型（可自由填寫）</label>
-            <input id="font" placeholder="例如：思源黑體 / 微軟正黑體">
+            <label for="personSearch">姓名（可搜尋或從下拉選擇）</label>
+            <input type="search" id="personSearch" placeholder="輸入關鍵字篩選名單（選填）" autocomplete="off">
+            <select id="personSelect" style="margin-top:8px">
+              <option value="">請先選擇活動</option>
+            </select>
           </div>
 
           <div class="field">
             <label>動作</label>
             <div class="row">
-              <button id="btnIn">簽到</button>
-              <button id="btnOut" class="secondary">簽退</button>
+              <button type="button" id="btnIn">簽到</button>
+              <button type="button" id="btnOut" class="secondary">簽退</button>
             </div>
+            <div id="checkinGateStatus" class="pill openStatusPill" style="display:none" role="status" aria-live="polite"></div>
             <div class="hint">選好動作後，往左滑到底就會送出。</div>
           </div>
 
@@ -77,28 +76,133 @@
       refreshNavExecBaseFromServer(BOOT);
       let action = null; // IN | OUT
       let busy = false;
+      let ROSTER_FULL = [];
 
       function setToast(msg){ $('#toast').textContent = msg || ''; }
+
+      function styleCheckinActionButtons(){
+        const inEl = $('#btnIn');
+        const outEl = $('#btnOut');
+        if (!inEl || !outEl) return;
+        inEl.classList.remove('action-selected-in', 'action-unselected');
+        outEl.classList.remove('action-selected-out', 'action-unselected', 'secondary');
+        if (action === 'IN') {
+          inEl.classList.add('action-selected-in');
+          outEl.classList.add('action-unselected');
+        } else if (action === 'OUT') {
+          outEl.classList.add('action-selected-out');
+          inEl.classList.add('action-unselected');
+        } else {
+          outEl.classList.add('secondary');
+        }
+      }
+
+      function getCheckinSelectedEventOpen(){
+        const id = $('#eventSelect').value.trim();
+        if (!id) return null;
+        const list = window.__checkinEventsList || [];
+        const h = list.find(function(e){ return e.eventId === id; });
+        return h ? !!h.isOpen : null;
+      }
+
+      function updateCheckinGateStatusUi(){
+        const badge = $('#checkinGateStatus');
+        if (!badge) return;
+        const id = $('#eventSelect').value.trim();
+        if (!id) {
+          badge.style.display = 'none';
+          badge.innerHTML = '';
+          return;
+        }
+        const open = getCheckinSelectedEventOpen();
+        badge.style.display = 'inline-flex';
+        if (open) {
+          badge.innerHTML = '<span class="dot ok"></span><span>本活動管理狀態：<strong>開放簽到</strong></span>';
+        } else {
+          badge.innerHTML = '<span class="dot not"></span><span>本活動管理狀態：<strong>尚未開放簽到</strong></span>';
+        }
+      }
 
       function setAction(next){
         action = next;
         $('#actionText').textContent = next === 'IN' ? '即將簽到' : next === 'OUT' ? '即將簽退' : '尚未選擇動作';
         const dot = $('#actionDot');
         dot.className = 'dot ' + (next === 'IN' ? 'ok' : next === 'OUT' ? 'warn' : '');
+        styleCheckinActionButtons();
+      }
+
+      function applyPersonFilter(q){
+        const sel = $('#personSelect');
+        const norm = function(s){ return String(s || '').toLowerCase(); };
+        const qq = norm(q);
+        const list = !qq ? ROSTER_FULL.slice() : ROSTER_FULL.filter(function(p){ return norm(p.displayName).indexOf(qq) !== -1; });
+        const cur = sel.value;
+        sel.innerHTML = '<option value=\"\">請選擇</option>' + list.map(function(p){
+          return '<option value=\"' + esc(p.personId) + '\">' + esc(p.displayName) + '</option>';
+        }).join('');
+        if (cur && list.some(function(p){ return p.personId === cur; })) sel.value = cur;
       }
 
       async function refreshRoster(){
-        const eventId = $('#eventId').value.trim();
-        if (!eventId){ $('#personSelect').innerHTML = '<option value=\"\">請先填 eventId</option>'; return; }
+        const eventId = $('#eventSelect').value.trim();
+        if (!eventId){
+          ROSTER_FULL = [];
+          $('#personSelect').innerHTML = '<option value=\"\">請先選擇活動</option>';
+          return;
+        }
         const roster = await api('publicListRoster', eventId);
-        $('#personSelect').innerHTML = '<option value=\"\">請選擇</option>' + roster.map(p => `<option value=\"${esc(p.personId)}\">${esc(p.displayName)}</option>`).join('');
+        ROSTER_FULL = Array.isArray(roster) ? roster : [];
+        applyPersonFilter(($('#personSearch').value || '').trim());
+      }
+
+      async function loadEventsCheckin(){
+        const sel = $('#eventSelect');
+        const hint = $('#eventHint');
+        const locked = String(BOOT.eventId || '').trim();
+        try {
+          const raw = await api('publicListBoardEvents');
+          const events = (raw && raw.events) ? raw.events : [];
+          window.__checkinEventsList = events;
+          sel.innerHTML = '<option value=\"\">請選擇活動</option>' + events.map(function(e){
+            const label = (e.name || e.eventId) + (e.isOpen ? '' : '（未開放簽到）');
+            return '<option value=\"' + esc(e.eventId) + '\">' + esc(label) + '</option>';
+          }).join('');
+          if (locked) {
+            if (events.some(function(x){ return x.eventId === locked; })) {
+              sel.value = locked;
+              sel.disabled = true;
+              hint.textContent = '已由簽到連結或 QR Code 指定活動。';
+            } else {
+              hint.textContent = '連結中的活動不存在或已不在清單中，請改選下方活動或洽管理員。';
+              sel.disabled = false;
+            }
+          } else {
+            if (events.length === 1) {
+              sel.value = String(events[0].eventId || '').trim();
+            }
+            hint.textContent = events.length ? '請選擇要簽到的活動。' : '尚無活動：請管理員於後台「建立活動」後再試。';
+            sel.disabled = false;
+          }
+          updateCheckinGateStatusUi();
+          await refreshRoster();
+          await refreshStatus();
+        } catch (e) {
+          sel.innerHTML = '<option value=\"\">載入失敗</option>';
+          hint.textContent = '無法載入活動清單：' + (e && e.message ? e.message : String(e));
+          window.__checkinEventsList = [];
+          updateCheckinGateStatusUi();
+        }
       }
 
       async function refreshStatus(){
-        const eventId = $('#eventId').value.trim();
+        const eventId = $('#eventSelect').value.trim();
         const personId = $('#personSelect').value;
         if (!eventId || !personId){ $('#statusBox').textContent = '請先選擇活動與姓名。'; return; }
         const s = await api('publicGetPersonStatus', eventId, personId);
+        if (!s || typeof s !== 'object') {
+          $('#statusBox').textContent = '無法讀取狀態，請重新整理頁面。';
+          return;
+        }
         $('#statusBox').innerHTML = `
           <div class="pill"><span class="dot ${s.status==='IN'?'ok':(s.status==='OUT'?'bad':'')}"></span>
             <span>${esc(s.statusLabel)}</span>
@@ -109,17 +213,17 @@
 
       async function submit(){
         if (busy) return;
-        const eventId = $('#eventId').value.trim();
+        const eventId = $('#eventSelect').value.trim();
         const personId = $('#personSelect').value;
-        const font = $('#font').value.trim();
-        if (!eventId) return setToast('請填寫 eventId。');
+        if (!eventId) return setToast('請選擇活動。');
         if (!personId) return setToast('請先選擇姓名。');
         if (!action) return setToast('請先選擇「簽到」或「簽退」。');
         busy = true;
         setToast('送出中…');
         try{
-          const res = await api('publicSubmitAttendance', { eventId, personId, action, font, clientMeta: { ua:navigator.userAgent } });
-          $('#serverTime').textContent = '伺服器時間 ' + fmtTs(res.serverTime);
+          const res = await api('publicSubmitAttendance', { eventId, personId, action, font: '', clientMeta: { ua:navigator.userAgent } });
+          var st = (res && res.serverTime != null && String(res.serverTime) !== '') ? String(res.serverTime) : '';
+          $('#serverTime').textContent = st ? ('伺服器時間 ' + fmtTs(st)) : '';
           setToast(action === 'IN' ? '簽到完成' : '簽退完成');
           await refreshStatus();
         }catch(e){
@@ -178,14 +282,22 @@
 
       $('#btnIn').addEventListener('click', () => setAction('IN'));
       $('#btnOut').addEventListener('click', () => setAction('OUT'));
-      $('#eventId').addEventListener('change', async () => { await refreshRoster(); await refreshStatus(); });
+      $('#eventSelect').addEventListener('change', async () => {
+        $('#personSearch').value = '';
+        updateCheckinGateStatusUi();
+        styleCheckinActionButtons();
+        await refreshRoster();
+        await refreshStatus();
+      });
+      $('#personSearch').addEventListener('input', function(){
+        applyPersonFilter(($('#personSearch').value || '').trim());
+      });
       $('#personSelect').addEventListener('change', refreshStatus);
 
       setAction(null);
       initSlide();
       (async () => {
-        if (BOOT.eventId) await refreshRoster();
-        await refreshStatus();
+        await loadEventsCheckin();
       })();
     </script>
   </body>

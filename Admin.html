@@ -3,6 +3,7 @@
   <head>
     <base target="_top">
     <?!= include('app.css'); ?>
+    <?!= include('qrlib.js'); ?>
   </head>
   <body>
     <div class="appBg">
@@ -34,7 +35,8 @@
           <div class="field">
             <label>QR Code 連結</label>
             <input id="qrLink" class="mono" readonly>
-            <div class="hint">把這個連結轉成 QR Code 貼出來即可（本版先提供連結；下一步會在此頁直接顯示 QR 圖）。</div>
+            <div id="adminQrHost" class="qrBox qrBox--admin" aria-hidden="true"></div>
+            <div class="hint">下方 QR 與連結相同；投影或大圖請至看板頁。</div>
           </div>
           <div class="field">
             <label>活動雲端資料夾（Drive）</label>
@@ -46,9 +48,10 @@
             <input id="eventSettingsUrl" class="mono" readonly placeholder="建立新活動後會顯示連結；其他活動請至雲端資料夾內開啟「…_設定」檔案。">
             <div class="hint">與該活動一併建立的 Google 試算表（檔名含 <span class="mono">_設定</span>），內含「分組」「名單」格式欄位供備份或協作；切換下拉選單後此欄會清空，請從資料夾開啟。</div>
           </div>
+          <div id="eventOpenStatus" class="pill openStatusPill" style="display:none" role="status" aria-live="polite"></div>
           <div class="row">
-            <button id="btnOpen">開放簽到</button>
-            <button id="btnClose" class="secondary">關閉簽到</button>
+            <button type="button" id="btnOpen">開放簽到</button>
+            <button type="button" id="btnClose" class="secondary">關閉簽到</button>
           </div>
           <div class="toast" id="toast"></div>
         </div>
@@ -95,10 +98,6 @@
               <select id="personGroup" style="flex:1"></select>
               <button id="btnAddPerson">新增</button>
             </div>
-            <div class="row" style="width:100%;margin-top:8px">
-              <button id="btnOpenSettingsRosterSheet" type="button" class="secondary">開啟設定試算表（名單）</button>
-            </div>
-            <div class="hint">會開啟活動資料夾內檔名含「_設定」的試算表並切到「名單」工作表，欄位格式與範本一致。簽到仍以本頁／主資料庫名單為準；試算表內容不會自動同步回後台。</div>
           </div>
           <div id="rosterList" class="list">請先選擇活動。</div>
         </div>
@@ -200,10 +199,11 @@
       }
 
       function setLinks(eventId){
+        const checkin = buildCheckinUrl(BOOT, eventId);
         const base = resolveWebAppBase(BOOT);
-        const checkin = (base ? base + '?page=checkin&eventId=' : '?page=checkin&eventId=') + encodeURIComponent(eventId);
         const board = (base ? base + '?page=board&eventId=' : '?page=board&eventId=') + encodeURIComponent(eventId);
         $('#qrLink').value = checkin;
+        renderQrInHost($('#adminQrHost'), checkin, 180);
         const bl = $('#boardLink'); if (bl) bl.value = board;
         const cl = $('#checkinLink'); if (cl) cl.value = checkin;
       }
@@ -222,12 +222,15 @@
           setEventLoadError('');
           setToast('', { error: false });
           $('#eventSelect').innerHTML = '<option value=\"\">請選擇</option>' + events.map(e => `<option value=\"${esc(e.eventId)}\">${esc(e.name)}</option>`).join('');
+          updateAdminEventOpenUi();
           return true;
         }catch(e){
           const msg = formatApiError(e);
           setEventLoadError(msg);
           setToast(msg, { error: true });
           $('#eventSelect').innerHTML = '<option value=\"\">載入失敗（原因見下方說明）</option>';
+          window.__events = [];
+          updateAdminEventOpenUi();
           return false;
         }
       }
@@ -241,13 +244,45 @@
         setLinks(res.eventId);
         $('#eventFolderUrl').value = res.driveFolderUrl || '';
         $('#eventSettingsUrl').value = res.driveSettingsUrl || '';
+        updateAdminEventOpenUi();
         setToast('已建立活動：' + res.eventId);
+      }
+
+      function updateAdminEventOpenUi(){
+        const btnO = $('#btnOpen');
+        const btnC = $('#btnClose');
+        const badge = $('#eventOpenStatus');
+        if (!btnO || !btnC || !badge) return;
+        btnO.classList.remove('toggle-active-open', 'toggle-active-close', 'toggle-inactive');
+        btnC.classList.remove('toggle-active-open', 'toggle-active-close', 'toggle-inactive');
+        const eventId = getSelectedEventId();
+        if (!eventId) {
+          badge.style.display = 'none';
+          badge.innerHTML = '';
+          return;
+        }
+        const hit = (window.__events || []).find(e => e.eventId === eventId);
+        const isOpen = !!(hit && hit.isOpen);
+        badge.style.display = 'inline-flex';
+        badge.innerHTML = isOpen
+          ? '<span class="dot ok"></span><span>目前狀態：<strong>開放簽到</strong>（可簽到／簽退）</span>'
+          : '<span class="dot not"></span><span>目前狀態：<strong>尚未開放簽到</strong></span>';
+        if (isOpen) {
+          btnO.classList.add('toggle-active-open');
+          btnC.classList.add('toggle-inactive');
+        } else {
+          btnC.classList.add('toggle-active-close');
+          btnO.classList.add('toggle-inactive');
+        }
       }
 
       async function setOpen(isOpen){
         const eventId = $('#eventSelect').value;
         if (!eventId) return setToast('請先選擇活動。');
         await api('adminSetEventOpen', { eventId, isOpen });
+        const hit = (window.__events || []).find(e => e.eventId === eventId);
+        if (hit) hit.isOpen = isOpen;
+        updateAdminEventOpenUi();
         setToast(isOpen ? '已開放簽到' : '已關閉簽到');
       }
 
@@ -370,7 +405,10 @@
       $('#btnCreateEvent').addEventListener('click', createEvent);
       $('#btnRefresh').addEventListener('click', async () => {
         const ok = await loadEvents();
-        if (ok) setToast('已更新', { error: false });
+        if (ok) {
+          updateAdminEventOpenUi();
+          setToast('已更新', { error: false });
+        }
       });
       $('#btnOpen').addEventListener('click', () => setOpen(true));
       $('#btnClose').addEventListener('click', () => setOpen(false));
@@ -384,12 +422,18 @@
       });
       $('#eventSelect').addEventListener('change', () => {
         const eventId = $('#eventSelect').value;
-        if (!eventId) return;
+        if (!eventId) {
+          $('#qrLink').value = '';
+          renderQrInHost($('#adminQrHost'), '', 180);
+          updateAdminEventOpenUi();
+          return;
+        }
         setLinks(eventId);
         const events = window.__events || [];
         const hit = events.find(e => e.eventId === eventId);
         $('#eventFolderUrl').value = (hit && hit.driveFolderUrl) ? hit.driveFolderUrl : '';
         $('#eventSettingsUrl').value = '';
+        updateAdminEventOpenUi();
         refreshGroupRoster();
         refreshAttachments();
       });
@@ -416,19 +460,6 @@
         $('#personName').value = '';
         await refreshGroupRoster();
         setToast('已新增人員');
-      });
-
-      $('#btnOpenSettingsRosterSheet').addEventListener('click', async () => {
-        const eventId = getSelectedEventId();
-        if (!eventId) return setToast('請先選擇活動。');
-        try {
-          const res = await api('adminGetEventSettingsSheetEditUrl', { eventId, sheetName: '名單' });
-          const url = res && res.url ? String(res.url).trim() : '';
-          if (!url) return setToast('未取得試算表網址。', { error: true });
-          window.open(url, '_blank', 'noopener,noreferrer');
-        } catch (e) {
-          setToast(formatApiError(e), { error: true });
-        }
       });
 
       $('#btnUploadAttach').addEventListener('click', async () => {
@@ -461,6 +492,7 @@
       (async () => {
         const eventsOk = await loadEvents();
         const adminsOk = await loadAdmins();
+        updateAdminEventOpenUi();
         if (eventsOk && adminsOk) {
           setToast('管理頁就緒', { error: false });
         }

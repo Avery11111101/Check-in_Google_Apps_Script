@@ -51,8 +51,8 @@ clasp push
 2. 建立活動 → 取得 `eventId` 與簽到連結
 3. 建立分組、建立名單（或先用 Apps Script 編輯器執行 `adminSeedDemoData()` 建示範資料）
 4. 點「開放簽到」
-5. 把簽到連結轉成 QR Code，讓大家掃
-6. 開啟看板 `?page=board&eventId=...` 投影展示狀態變化
+5. 簽到 QR：管理頁會顯示小圖；投影時可開看板頁頂部**大 QR** 讓大家掃
+6. 開啟看板 `?page=board`（可選 `eventId=`）投影；頁內亦可**下拉切換活動**並自動更新網址列
 
 ## Google Drive 目錄與檔名
 
@@ -80,5 +80,13 @@ clasp push
 - **修正**：`adminListEvents` 改回傳 `{ ok, events }`（並將試算表日期欄轉成字串），避免 `google.script.run` 序列化陣列在客戶端變成 `null` 而觸發 `Cannot read properties of null (reading 'map')`；管理頁 `loadEvents` 另做防呆。
 - **UX**：未登入 Google 即開啟管理頁時，錯誤頁提供 **「由此登入 Google 帳號」** 按鈕（`target="_top"`，`continue` 導回管理頁）；若尚無快取的 Web App 網址則僅導向 Google 登入頁。
 - **復原**：若指令碼屬性中的 **`DRIVE_FOLDER_ID`（根資料夾）** 或 **`SPREADSHEET_ID`（主試算表）** 已在雲端硬碟被刪除或無權限，`ensureInitialized_`／`getDb_` 會**清除失效 ID 並自動新建**根資料夾與主試算表、重新初始化工作表（`ADMIN_EMAILS` 等仍留在指令碼屬性；活動／名單等**表內資料**會是新的空庫）。
-- **管理**：名單區新增「開啟設定試算表（名單）」按鈕；伺服端 `adminGetEventSettingsSheetEditUrl` 依活動 `driveFolderId` 在資料夾內尋找檔名含 `_設定` 的試算表（多筆時取最近修改），組出含 `#gid` 的編輯網址以開啟「名單」工作表。簽到資料仍以主試算表 `Roster`／管理頁維護為準，設定表不會自動匯入後台。
+- **QR Code**：管理頁依目前活動即時顯示簽到連結之 QR（內嵌 [qrcodejs](https://github.com/davidshimjs/qrcodejs)）；看板頂部顯示**大尺寸**簽到 QR，並可從下拉選單**切換活動**（變更時以 `history.replaceState` 同步網址 `eventId`）。公開函式 **`publicListBoardEvents`** 供看板載入活動清單（僅 `eventId`、`name`、`isOpen`、`createdAt`，不含 Drive 網址）；與 `publicGetBoardState` 相同，**持有 Web App 連結者**即可呼叫，若需隱藏未開放活動可再改伺服端篩選。
+- **簽到首頁（Checkin）**：活動改為**下拉選單**（同樣呼叫 `publicListBoardEvents`）；若網址或 QR 已帶 `eventId` 則自動選定並鎖定選單。姓名欄新增**關鍵字搜尋**篩選，仍以下拉選單選取正式名單。
+- **看板配額**：看板頁曾用 `setInterval` 呼叫非同步 `tick()`，導致多個 `publicGetBoardState` **重疊執行**，易觸發 Google 試算表／同時執行配額相關錯誤。已改為**單飛** `setTimeout` 鏈（上一輪完成後才排下一輪）、分頁在背景時拉長間隔、載入時先取 `exec` 網址再載活動；看板實際輪詢間隔為 **`max(5, POLL_SECONDS)` 秒**（仍可由指令碼屬性 `POLL_SECONDS` 調大）。
+- **簽到回傳**：`publicSubmitAttendance` 的 `serverTime` 改為**字串**（`cellToPlain_`），避免 `google.script.run` 序列化含 `Date` 的物件在客戶端變成 `null`，進而觸發 `Cannot read properties of null (reading 'serverTime')`；簽到頁並對回傳做防呆。
+- **簽到 UI**：移除「字體／字型」輸入欄；送出時仍傳 `font: ''`，`Logs` 工作表之 `font` 欄位保留（寫入空字串）。名單試算表範本之 `font` 欄說明未改，供進階用途。
+- **UX**：管理頁顯示目前活動**是否開放簽到**（狀態列 +「開放／關閉」按鈕強調色）；簽到頁顯示**本活動管理狀態**，且按下「簽到／簽退」後按鈕以綠／橘強調選取動作。
+- **看板**：`publicGetBoardState` 的 `now` 改為**字串**（`cellToPlain_`），狀態快取列之 `lastTime` 亦改為字串，避免 `google.script.run` 回傳含 `Date` 時客戶端整包為 `null` 而觸發 `Cannot read properties of null (reading 'now')`；前端 `render`／`tick` 並做防呆。
+- **簽到狀態**：`getStatus_`／`publicGetPersonStatus` 的 `lastTime` 改為字串（`cellToPlain_`），回傳欄位亦強制字串化，避免客戶端 `Cannot read properties of null (reading 'status')`；簽到頁 `refreshStatus` 並做防呆。
+- **維護**：已移除簽到／看板頁面中導向本機 ingest 的除錯用 `fetch`（agent log），正式環境不再嘗試連線 `127.0.0.1`。
 
