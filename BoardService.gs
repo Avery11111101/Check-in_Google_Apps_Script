@@ -13,11 +13,13 @@ function publicListBoardEvents(onlyOpen) {
     if (!r[0]) continue;
     const isOpen = String(r[4] || '') === 'TRUE' || r[4] === true;
     if (filterOpen && !isOpen) continue;
+    const eidRow = String(r[0]);
     out.push({
-      eventId: String(r[0]),
+      eventId: eidRow,
       name: String(r[1] || ''),
       isOpen,
       createdAt: cellToPlain_(r[7]),
+      requiresCheckinCode: !!String(getEventCheckinToken_(eidRow) || '').trim(),
     });
   }
   out.sort((a, b) => String(b.createdAt).localeCompare(String(a.createdAt)));
@@ -40,7 +42,8 @@ function publicGetBoardState(eventId, token) {
         if (parsed && typeof parsed === 'object' && parsed.ok) {
           const freshUrl = buildPublicCheckinUrl_(eid, getEventCheckinToken_(eid));
           const meta = getBoardCheckinQrExpiryMeta_(eid);
-          return Object.assign({}, parsed, { checkinUrl: freshUrl }, meta);
+          const currentCheckinCode = getCurrentCheckinCodeForDisplay_(eid);
+          return Object.assign({}, parsed, { checkinUrl: freshUrl, currentCheckinCode: currentCheckinCode }, meta);
         }
       }
     } catch (_e) {
@@ -142,7 +145,8 @@ function publicGetBoardState(eventId, token) {
   const nowStr = cellToPlain_(new Date());
   const coreForCache = { ok: true, now: nowStr, groups: outGroups };
   const meta = getBoardCheckinQrExpiryMeta_(eid);
-  const payload = Object.assign({}, coreForCache, { checkinUrl: checkinUrl }, meta);
+  const currentCheckinCode = getCurrentCheckinCodeForDisplay_(eid);
+  const payload = Object.assign({}, coreForCache, { checkinUrl: checkinUrl, currentCheckinCode: currentCheckinCode }, meta);
   if (ttl > 0 && eid) {
     try {
       const cache = CacheService.getDocumentCache();

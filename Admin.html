@@ -39,6 +39,7 @@
               <button type="button" id="btnCopyQrLink" class="secondary">複製</button>
             </div>
             <div id="adminQrHost" class="qrBox qrBox--admin" aria-hidden="true"></div>
+            <div id="adminCurrentCodeHost" style="margin-top:10px"></div>
             <div id="adminQrCountdown" class="hint" style="margin-top:8px;text-align:center" aria-live="polite"></div>
             <div class="hint">下方 QR 與連結相同；投影或大圖請至看板頁。</div>
           </div>
@@ -64,14 +65,14 @@
             <button type="button" id="btnClose" class="secondary">關閉簽到</button>
           </div>
           <div class="field">
-            <label>簽到存取密鑰（選用）</label>
+            <label>現場簽到驗證碼（選用）</label>
             <div id="checkinTokenStatus" class="hint">請先選擇活動。</div>
             <div class="row">
-              <button type="button" id="btnGenCheckinToken" class="secondary">產生／重設密鑰</button>
-              <button type="button" id="btnClearCheckinToken" class="secondary">清除密鑰</button>
+              <button type="button" id="btnGenCheckinToken" class="secondary">產生／重設驗證碼</button>
+              <button type="button" id="btnClearCheckinToken" class="secondary">清除驗證碼</button>
             </div>
             <div id="tokenRotateWrap" class="field" style="margin-top:12px;padding-top:12px;border-top:1px solid rgba(255,255,255,.08)">
-              <label for="tokenRotateSelect">自動變更密鑰週期（降低遠端留存連結簽到）</label>
+              <label for="tokenRotateSelect">驗證碼自動變更週期（降低離場後仍記得舊碼簽到）</label>
               <div class="row" style="width:100%;flex-wrap:wrap;gap:8px;align-items:center">
                 <select id="tokenRotateSelect" style="flex:1;min-width:200px">
                   <option value="0">不自動變更（僅手動重設時換密鑰）</option>
@@ -86,17 +87,17 @@
                 <button type="button" id="btnSaveTokenRotate" class="secondary">儲存週期</button>
               </div>
               <div id="tokenRotateStatus" class="hint" style="margin-top:8px">請先選擇活動。</div>
-              <div class="hint" style="margin-top:8px">輪替後會短暫接受<strong>上一組</strong>密鑰，避免掃碼與送出之間失敗。<strong>看板角落 QR</strong>會隨輪詢更新；本頁 QR／複製連結為當下快照，過期後請重新開啟管理頁或改看投影 QR。</div>
+              <div class="hint" style="margin-top:8px">輪替後會短暫接受<strong>上一組</strong>驗證碼，避免輸入與送出之間失敗。<strong>看板角落</strong>會隨輪詢顯示目前驗證碼；本頁 QR 下方亦會同步顯示。</div>
             </div>
-            <div class="hint">設定後，公開 API（名單、簽到、看板狀態）須帶正確網址參數 <span class="mono">checkinToken</span>；下方 QR 與連結會自動附加。未設定時，持有 Web App 連結者仍可呼叫公開 API（與舊版行為相同）。</div>
+            <div class="hint">設定後，簽到頁須輸入正確的<strong>6 位驗證碼</strong>才能載入名單與簽到／簽退；下方 QR 僅含活動網址，不含驗證碼。未設定時，持有 Web App 連結者仍可呼叫簽到相關公開 API（與舊版行為相同）。</div>
           </div>
           <div id="boardPairAuthWrap" class="field" style="display:none">
-            <label>看板即時授權（6 位驗證碼）</label>
+            <label>看板即時授權（6 位一次性授權碼）</label>
             <div class="row">
-              <button type="button" id="btnCreateBoardPairCode" class="secondary">產生看板驗證碼</button>
+              <button type="button" id="btnCreateBoardPairCode" class="secondary">產生看板授權碼</button>
             </div>
             <div id="boardPairCodeDisplay" class="boardPairCodeDisplay" style="display:none" role="status" aria-live="polite"></div>
-            <div class="hint">若活動已設定簽到密鑰，建議看板網址<strong>不要</strong>附帶 <span class="mono">checkinToken</span>。請在投影現場於看板輸入此驗證碼後，角落 QR 才會顯示並隨密鑰更新；簽到頁仍使用下方「QR Code 連結」。</div>
+            <div class="hint">此碼<strong>僅供看板頁</strong>解鎖名單與角落簽到 QR，與下方「現場簽到驗證碼」不同；簽到人員請看 QR 下方之<strong>簽到驗證碼</strong>並於簽到頁輸入。</div>
           </div>
           <div class="toast" id="toast"></div>
         </div>
@@ -259,12 +260,12 @@
         var rotatedMs = rotatedAtStr ? Number(rotatedAtStr) : NaN;
         var parts = [];
         if (!token) {
-          parts.push('尚未設定簽到密鑰；可先選好週期，產生密鑰後輪替即會生效。');
+          parts.push('尚未設定現場簽到驗證碼；可先選好週期，產生驗證碼後輪替即會生效。');
         }
         if (rotateSec === 0) {
-          parts.push('目前為「不自動變更」：除非手動「產生／重設密鑰」，checkinToken 維持不變。');
+          parts.push('目前為「不自動變更」：除非手動「產生／重設驗證碼」，驗證碼維持不變。');
         } else {
-          parts.push('目前每隔 ' + rotateSec + ' 秒自動換密鑰一次（於伺服端收到公開 API 時檢查）；上一組密鑰僅短暫有效。');
+          parts.push('目前每隔 ' + rotateSec + ' 秒自動換驗證碼一次（於伺服端收到公開 API 時檢查）；上一組驗證碼僅短暫有效。');
           if (token && isFinite(rotatedMs) && rotatedMs > 0) {
             parts.push('最近一次輪替錨點時間：' + fmtAdminTs(rotatedMs) + '（供推算下次輪替節奏）。');
           } else if (token) {
@@ -338,11 +339,11 @@
             return;
           }
           if (!isFinite(rs) || rs < 30) {
-            el.textContent = '此頁簽到 QR 為目前快照；看板角落會顯示「約幾秒後此 QR 連結失效」（若有啟用密鑰輪替）。';
+            el.textContent = '此頁簽到 QR 不含驗證碼；若有啟用自動輪替，下方會顯示距離驗證碼變更的秒數（與看板同步）。';
             return;
           }
           if (!isFinite(rat) || rat <= 0) {
-            el.textContent = '已啟用自動輪替：首次有訪客呼叫公開 API 後，此處會顯示距離目前 QR 連結失效的秒數。';
+            el.textContent = '已啟用自動輪替：首次有訪客呼叫公開 API 後，此處會顯示距離目前驗證碼變更的秒數。';
             return;
           }
           var s = adminSecsToNextTokenRotate_(rat, rs);
@@ -350,7 +351,7 @@
             el.textContent = '';
             return;
           }
-          el.textContent = '約 ' + s + ' 秒後，此 QR Code 內含簽到連結將失效（密鑰輪替）；歸零時會自動更新下方 QR。';
+          el.textContent = '約 ' + s + ' 秒後，目前簽到驗證碼將變更；歸零時會自動更新下方 QR 旁顯示之碼與 QR 圖。';
           if (s <= 0 && !__adminQrRotateRefreshBusy) {
             var nowMs = Date.now();
             if (nowMs - __adminQrLastAutoRefreshAt < 5000) return;
@@ -381,13 +382,19 @@
         let board = (base ? base + '?page=board&eventId=' : '?page=board&eventId=') + encodeURIComponent(eventId);
         $('#qrLink').value = checkin;
         renderQrInHost($('#adminQrHost'), checkin, 180);
+        if (typeof renderCurrentCheckinCode === 'function') {
+          renderCurrentCheckinCode($('#adminCurrentCodeHost'), token, function(r){
+            if (r.ok) setToast('已複製驗證碼');
+            else setToast(r.message || '複製失敗', { error: true });
+          });
+        }
         const bl = $('#boardLink'); if (bl) bl.value = board;
         const cl = $('#checkinLink'); if (cl) cl.value = checkin;
         const st = $('#checkinTokenStatus');
         if (st) {
           st.textContent = token
-            ? '已設定密鑰：對外連結與 QR 已含 checkinToken。'
-            : '未設定密鑰：公開 API 不需 token（與舊版相容）。';
+            ? '已設定驗證碼：簽到須輸入 6 位數；QR 與複製連結不含驗證碼。'
+            : '未設定驗證碼：簽到相關公開 API 不需驗證碼（與舊版相容）。';
         }
         const pairWrap = $('#boardPairAuthWrap');
         if (pairWrap) pairWrap.style.display = token ? 'block' : 'none';
@@ -636,10 +643,10 @@
       $('#btnGenCheckinToken').addEventListener('click', async () => {
         const eventId = getSelectedEventId();
         if (!eventId) return setToast('請先選擇活動。');
-        if (!confirm('將產生新密鑰，舊的簽到／看板連結與 QR 將失效。確定？')) return;
+        if (!confirm('將產生新驗證碼，舊碼將無法簽到。確定？')) return;
         try {
           await api('adminRegenerateEventCheckinToken', { eventId });
-          setToast('已產生新密鑰，請重新發布連結與 QR。');
+          setToast('已產生新驗證碼，請通知現場改輸入新碼。');
           await setLinks(eventId);
         } catch (e) {
           setToast(formatApiError(e), { error: true });
@@ -648,10 +655,10 @@
       $('#btnClearCheckinToken').addEventListener('click', async () => {
         const eventId = getSelectedEventId();
         if (!eventId) return setToast('請先選擇活動。');
-        if (!confirm('清除後公開 API 不再需要 token，確定？')) return;
+        if (!confirm('清除後簽到相關公開 API 不再需要驗證碼，確定？')) return;
         try {
           await api('adminClearEventCheckinToken', { eventId });
-          setToast('已清除簽到密鑰。');
+          setToast('已清除現場簽到驗證碼。');
           await setLinks(eventId);
         } catch (e) {
           setToast(formatApiError(e), { error: true });
@@ -703,7 +710,7 @@
           if (box && code) {
             box.style.display = 'block';
             box.innerHTML = '<div class="boardPairCodeBig mono">' + esc(code) + '</div><div class="boardPairCodeMeta hint" id="boardPairCodeMeta"></div>';
-            setToast('已產生看板驗證碼，請在現場看板輸入。');
+            setToast('已產生看板授權碼，請在現場看板輸入。');
           }
           startBoardPairCountdown(sec);
         } catch (e) {
@@ -716,6 +723,9 @@
         if (!eventId) {
           $('#qrLink').value = '';
           renderQrInHost($('#adminQrHost'), '', 180);
+          if (typeof renderCurrentCheckinCode === 'function') {
+            renderCurrentCheckinCode($('#adminCurrentCodeHost'), '');
+          }
           const st = $('#checkinTokenStatus');
           if (st) st.textContent = '請先選擇活動。';
           window.__adminLastSecurity = {};

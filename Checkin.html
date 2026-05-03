@@ -40,6 +40,12 @@
             </select>
           </div>
 
+          <div class="field" id="checkinCodeWrap">
+            <label for="checkinCode">現場簽到驗證碼（6 位數字）</label>
+            <input type="text" id="checkinCode" class="mono" inputmode="numeric" maxlength="6" placeholder="見管理頁或看板 QR 下方" autocomplete="one-time-code" style="max-width:220px;letter-spacing:0.12em;font-size:1.05rem">
+            <div id="checkinCodeHint" class="hint">若活動有設定驗證碼則必填；未設定之活動可留空。</div>
+          </div>
+
           <div class="field">
             <label>動作</label>
             <div class="row checkinActionRow">
@@ -57,7 +63,7 @@
             </div>
             <div class="slideBar" id="slideBar">
               <div class="slideText" id="slideHint">往左滑動確認</div>
-              <div class="thumb" id="thumb" role="slider" tabindex="0" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0" aria-label="往左滑到底以確認簽到或簽退；亦可用 Enter 送出" aria-busy="false">滑動</div>
+              <div class="thumb" id="thumb" role="slider" tabindex="0" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0" aria-label="輸入驗證碼後往左滑到底以確認簽到或簽退；亦可用 Enter 送出" aria-busy="false">滑動</div>
             </div>
             <div class="toast" id="toast" role="status" aria-live="polite"></div>
           </div>
@@ -75,13 +81,8 @@
     <?!= include('app.js'); ?>
     <script>
       const BOOT = <?= JSON.stringify(bootstrap) ?>;
-      const CHECKIN_TOKEN = String(BOOT.checkinToken || '').trim();
-      /** 由 `google.script.url.getLocation` 填入；null 表示尚未回呼。 */
-      var __gasUrlLocParams = null;
-      /**
-       * HtmlService IFRAME 內：`window.location` 與 `document.referrer` 常無法還原外層 `…/exec?...`；
-       * 須以 `google.script.url.getLocation` 讀取「瀏覽器網址列」對應之查詢參數（官方文件）。
-       */
+      /** 由 `google.script.url.getLocation` 填入外層網址之列 `eventId`（Iframe 內用）。 */
+      var __gasLockedEventId = '';
       function readParamFromGasUrlLoc_(loc, key){
         try {
           if (!loc) return '';
@@ -96,23 +97,20 @@
         return '';
       }
       function bootstrapCheckinFromGasUrl_(done){
-        function finish(obj){
-          __gasUrlLocParams = obj || { eventId: '', checkinToken: '' };
+        function finish(ev){
+          __gasLockedEventId = String(ev || '').trim();
           if (typeof done === 'function') done();
         }
         if (typeof google === 'undefined' || !google.script || !google.script.url || typeof google.script.url.getLocation !== 'function') {
-          finish({});
+          finish('');
           return;
         }
         try {
           google.script.url.getLocation(function(loc){
-            var ev = readParamFromGasUrlLoc_(loc, 'eventId');
-            var tok = readParamFromGasUrlLoc_(loc, 'checkinToken');
-            if (!tok) tok = readParamFromGasUrlLoc_(loc, 'token');
-            finish({ eventId: ev, checkinToken: tok });
+            finish(readParamFromGasUrlLoc_(loc, 'eventId'));
           });
         } catch (_e2) {
-          finish({});
+          finish('');
         }
       }
       function getExecContextSearchParams(){
@@ -120,7 +118,7 @@
           try {
             var u = new URL(String(urlStr || ''), 'https://script.google.com');
             var s = u.searchParams;
-            ['eventId', 'checkinToken', 'token', 'page'].forEach(function(k){
+            ['eventId', 'page'].forEach(function(k){
               var v = s.get(k);
               if (v != null && String(v).trim() !== '') params.set(k, String(v).trim());
             });
@@ -138,31 +136,71 @@
       function getEffectiveLockedEventId(){
         var b = String(BOOT.eventId || '').trim();
         if (b) return b;
-        if (__gasUrlLocParams && String(__gasUrlLocParams.eventId || '').trim()) {
-          return String(__gasUrlLocParams.eventId).trim();
-        }
+        if (String(__gasLockedEventId || '').trim()) return String(__gasLockedEventId).trim();
         try {
           return String(getExecContextSearchParams().get('eventId') || '').trim();
         } catch (_e) {
           return '';
         }
       }
-      /**
-       * 與公開 API 呼叫一致：優先 BOOT（doGet 已解析／升級），次為 `google.script.url.getLocation`，
-       * 再以 location＋referrer 為後援，最後常數。
-       */
-      function getEffectiveCheckinToken(){
-        var boot = String(BOOT.checkinToken || '').trim();
-        if (boot) return boot;
-        if (__gasUrlLocParams && String(__gasUrlLocParams.checkinToken || '').trim()) {
-          return String(__gasUrlLocParams.checkinToken).trim();
+      function checkinCodeStorageKey(eventId){
+        return 'checkinCode_' + String(eventId || '').trim();
+      }
+      function getEffectiveCheckinCode(){
+        var inp = $('#checkinCode');
+        var raw = inp ? String(inp.value || '').replace(/\D/g, '') : '';
+        return raw.slice(0, 6);
+      }
+      function persistCheckinCode(){
+        var ev = $('#eventSelect').value.trim();
+        var c = getEffectiveCheckinCode();
+        if (!ev) return;
+        try {
+          if (c) sessionStorage.setItem(checkinCodeStorageKey(ev), c);
+          else sessionStorage.removeItem(checkinCodeStorageKey(ev));
+        } catch (_e) {}
+      }
+      function loadPersistedCheckinCodeIntoField(){
+        var ev = $('#eventSelect').value.trim();
+        var inp = $('#checkinCode');
+        if (!inp) return;
+        if (!ev) {
+          inp.value = '';
+          return;
         }
         try {
-          var q = getExecContextSearchParams();
-          var u = String(q.get('checkinToken') || q.get('token') || '').trim();
-          if (u) return u;
+          var s = String(sessionStorage.getItem(checkinCodeStorageKey(ev)) || '').replace(/\D/g, '').slice(0, 6);
+          inp.value = s || '';
+        } catch (_e) {
+          inp.value = '';
+        }
+      }
+      function clearCheckinCodeStorage(eventId){
+        var eid = String(eventId || '').trim();
+        if (!eid) return;
+        try {
+          sessionStorage.removeItem(checkinCodeStorageKey(eid));
         } catch (_e) {}
-        return CHECKIN_TOKEN;
+      }
+      function getSelectedEventRequiresCheckinCode(){
+        var id = $('#eventSelect').value.trim();
+        if (!id) return false;
+        var list = window.__checkinEventsList || [];
+        var h = list.find(function(e){ return e.eventId === id; });
+        return !!(h && h.requiresCheckinCode === true);
+      }
+      function updateCheckinCodeHintUi(){
+        var hint = $('#checkinCodeHint');
+        if (!hint) return;
+        if (getSelectedEventRequiresCheckinCode()) {
+          hint.textContent = '此活動已設定驗證碼：請輸入 6 位數字後再載入名單與滑動簽到。';
+        } else {
+          hint.textContent = '此活動未設定驗證碼，可留空。';
+        }
+      }
+      function isLikelyCheckinCodeAuthError_(msg){
+        var s = String(msg || '');
+        return s.indexOf('驗證碼') !== -1 || s.indexOf('checkinToken') !== -1 || s.indexOf('密鑰') !== -1 || s.indexOf('存取密鑰') !== -1;
       }
       document.getElementById('topNav').appendChild(renderTopbarNav(BOOT));
       refreshNavExecBaseFromServer(BOOT);
@@ -240,23 +278,31 @@
         const id = $('#eventSelect').value.trim();
         const open = getCheckinSelectedEventOpen();
         var gatedOff = !!id && open === false;
+        var needCode = getSelectedEventRequiresCheckinCode();
+        var codeOk = !needCode || getEffectiveCheckinCode().length === 6;
+        var gatedCode = !!id && needCode && !codeOk;
+        var block = gatedOff || gatedCode;
         var inEl = $('#btnIn');
         var outEl = $('#btnOut');
         var thumb = $('#thumb');
         var bar = $('#slideBar');
         var hint = $('#slideHint');
-        if (inEl) inEl.disabled = gatedOff;
-        if (outEl) outEl.disabled = gatedOff;
+        if (inEl) inEl.disabled = block;
+        if (outEl) outEl.disabled = block;
         if (thumb) {
-          thumb.setAttribute('aria-disabled', gatedOff ? 'true' : 'false');
-          thumb.tabIndex = gatedOff ? -1 : 0;
-          thumb.style.pointerEvents = gatedOff ? 'none' : '';
+          thumb.setAttribute('aria-disabled', block ? 'true' : 'false');
+          thumb.tabIndex = block ? -1 : 0;
+          thumb.style.pointerEvents = block ? 'none' : '';
         }
         if (bar) {
-          bar.classList.toggle('is-gated', gatedOff);
-          bar.setAttribute('aria-disabled', gatedOff ? 'true' : 'false');
+          bar.classList.toggle('is-gated', block);
+          bar.setAttribute('aria-disabled', block ? 'true' : 'false');
         }
-        if (hint) hint.textContent = gatedOff ? '活動尚未開放簽到' : '往左滑動確認';
+        if (hint) {
+          if (gatedOff) hint.textContent = '活動尚未開放簽到';
+          else if (gatedCode) hint.textContent = '請先輸入 6 位驗證碼';
+          else hint.textContent = '往左滑動確認';
+        }
       }
 
       function updateCheckinGateStatusUi(){
@@ -307,13 +353,21 @@
           return;
         }
         try {
-          const roster = await api('publicListRoster', eventId, getEffectiveCheckinToken());
+          const roster = await api('publicListRoster', eventId, getEffectiveCheckinCode());
           ROSTER_FULL = Array.isArray(roster) ? roster : [];
           applyPersonFilter(($('#personSearch').value || '').trim());
         } catch (e) {
           ROSTER_FULL = [];
           $('#personSelect').innerHTML = '<option value=\"\">名單載入失敗</option>';
-          setToast(formatApiError(e), { error: true });
+          var msg = formatApiError(e);
+          if (isLikelyCheckinCodeAuthError_(msg)) {
+            clearCheckinCodeStorage(eventId);
+            var inp = $('#checkinCode');
+            if (inp) inp.value = '';
+            setToast('驗證碼錯誤或已更新，請重新輸入。', { error: true });
+          } else {
+            setToast(msg, { error: true });
+          }
         }
       }
 
@@ -345,6 +399,8 @@
             hint.textContent = events.length ? '請選擇要簽到的活動。' : '尚無活動：請管理員於後台「建立活動」後再試。';
             sel.disabled = false;
           }
+          loadPersistedCheckinCodeIntoField();
+          updateCheckinCodeHintUi();
           updateCheckinGateStatusUi();
           await refreshRoster();
           await refreshStatus();
@@ -361,7 +417,7 @@
         const personId = $('#personSelect').value;
         if (!eventId || !personId){ $('#statusBox').textContent = '請先選擇活動與姓名。'; return; }
         try {
-          const s = await api('publicGetPersonStatus', eventId, personId, getEffectiveCheckinToken());
+          const s = await api('publicGetPersonStatus', eventId, personId, getEffectiveCheckinCode());
           if (!s || typeof s !== 'object') {
             $('#statusBox').textContent = '無法讀取狀態，請重新整理頁面。';
             return;
@@ -373,7 +429,14 @@
             <div style="margin-top:10px" class="hint">最後時間：<span class="mono">${esc(s.lastTime ? fmtTs(s.lastTime) : '—')}</span></div>
           `;
         } catch (e) {
-          $('#statusBox').innerHTML = '<div class="banner-error" style="display:block">' + esc(formatApiError(e)) + '</div>';
+          var msg = formatApiError(e);
+          if (isLikelyCheckinCodeAuthError_(msg)) {
+            clearCheckinCodeStorage(eventId);
+            var inp2 = $('#checkinCode');
+            if (inp2) inp2.value = '';
+            syncCheckinInteractiveDisabled();
+          }
+          $('#statusBox').innerHTML = '<div class="banner-error" style="display:block">' + esc(msg) + '</div>';
         }
       }
 
@@ -384,17 +447,29 @@
         if (!eventId) return setToast('請選擇活動。', { clearMs: 3200 });
         if (!personId) return setToast('請先選擇姓名。', { clearMs: 3200 });
         if (!action) return setToast('請先選擇「簽到」或「簽退」。', { clearMs: 3200 });
+        if (getSelectedEventRequiresCheckinCode() && getEffectiveCheckinCode().length !== 6) {
+          return setToast('請先輸入管理頁或看板 QR 下方顯示的 6 位驗證碼。', { clearMs: 4000 });
+        }
         busy = true;
         setCheckinSubmittingUi(true);
         setToast('送出中…', { clearMs: null });
         try{
-          const res = await api('publicSubmitAttendance', { eventId, personId, action, font: '', token: getEffectiveCheckinToken(), clientMeta: { ua:navigator.userAgent } });
+          const res = await api('publicSubmitAttendance', { eventId, personId, action, font: '', token: getEffectiveCheckinCode(), clientMeta: { ua:navigator.userAgent } });
           var st = (res && res.serverTime != null && String(res.serverTime) !== '') ? String(res.serverTime) : '';
           $('#serverTime').textContent = st ? ('伺服器時間 ' + fmtTs(st)) : '';
           setToast(action === 'IN' ? '簽到完成' : '簽退完成', { clearMs: 3800 });
           await refreshStatus();
         }catch(e){
-          setToast(formatApiError(e), { error: true });
+          var em = formatApiError(e);
+          if (isLikelyCheckinCodeAuthError_(em)) {
+            clearCheckinCodeStorage(eventId);
+            var inp3 = $('#checkinCode');
+            if (inp3) inp3.value = '';
+            setToast('驗證碼錯誤或已更新，請重新輸入。', { error: true });
+            syncCheckinInteractiveDisabled();
+          } else {
+            setToast(em, { error: true });
+          }
         }finally{
           busy = false;
           setCheckinSubmittingUi(false);
@@ -488,13 +563,25 @@
       $('#btnOut').addEventListener('click', () => setAction('OUT'));
       $('#eventSelect').addEventListener('change', async () => {
         $('#personSearch').value = '';
+        loadPersistedCheckinCodeIntoField();
+        updateCheckinCodeHintUi();
         updateCheckinGateStatusUi();
         styleCheckinActionButtons();
         try {
           await refreshRoster();
           await refreshStatus();
         } catch (_e) {}
+        syncCheckinInteractiveDisabled();
       });
+      var checkinCodeEl = $('#checkinCode');
+      if (checkinCodeEl) {
+        checkinCodeEl.addEventListener('input', function(){
+          var v = String(checkinCodeEl.value || '').replace(/\D/g, '').slice(0, 6);
+          if (checkinCodeEl.value !== v) checkinCodeEl.value = v;
+          persistCheckinCode();
+          syncCheckinInteractiveDisabled();
+        });
+      }
       $('#personSearch').addEventListener('input', function(){
         applyPersonFilter(($('#personSearch').value || '').trim());
       });

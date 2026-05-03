@@ -66,11 +66,12 @@ function adminSetEventOpen(payload) {
   throw new Error('找不到活動。');
 }
 
-/** 管理員讀取簽到密鑰（用於產生含 checkinToken 的連結／QR）。 */
+/** 管理員讀取現場簽到驗證碼與輪替設定（用於 QR 旁顯示、簽到頁輸入驗證）。 */
 function adminGetEventSecurity(eventId) {
   requireAdmin_();
   const id = String(eventId || '').trim();
   if (!id) throw new Error('缺少 eventId。');
+  ensureCheckinTokenRotated_(id);
   const rotateSeconds = getEventCheckinRotateSeconds_(id);
   const atRaw = String(getConfig_(eventCheckinTokenRotatedAtKey_(id), '') || '').trim();
   const rotatedAtMs = Number(atRaw);
@@ -113,12 +114,12 @@ function adminSetEventCheckinTokenRotate(payload) {
   return { ok: true, rotateSeconds: n };
 }
 
-/** 產生新的隨機簽到密鑰並覆寫舊值；回傳後請立即更新對外連結。 */
+/** 產生新的 6 位現場簽到驗證碼並覆寫舊值。 */
 function adminRegenerateEventCheckinToken(payload) {
   requireAdmin_();
   const eventId = String((payload && payload.eventId) || '').trim();
   if (!eventId) throw new Error('缺少 eventId。');
-  const token = 'ck_' + Utilities.getUuid().replace(/-/g, '');
+  const token = generateCheckinCode_();
   upsertConfig_(eventCheckinTokenKey_(eventId), token);
   deleteConfig_(eventCheckinTokenPrevKey_(eventId));
   deleteConfig_(eventCheckinTokenLegacyKey_(eventId));
@@ -127,7 +128,7 @@ function adminRegenerateEventCheckinToken(payload) {
   return { ok: true, checkinToken: token };
 }
 
-/** 清除簽到密鑰後，公開 API 不再要求 checkinToken（舊連結仍可用）。 */
+/** 清除驗證碼後，公開 API 不再要求現場簽到驗證碼。 */
 function adminClearEventCheckinToken(payload) {
   requireAdmin_();
   const eventId = String((payload && payload.eventId) || '').trim();

@@ -1,5 +1,5 @@
 const APP = {
-  VERSION: '0.2.6',
+  VERSION: '0.2.7',
   PAGES: {
     CHECKIN: 'checkin',
     ADMIN: 'admin',
@@ -50,8 +50,6 @@ function doGet(e) {
   const pageRaw = getDoGetParamFirst_(e, 'page');
   const page = pageRaw ? String(pageRaw) : APP.PAGES.CHECKIN;
   const eventId = getDoGetParamFirst_(e, 'eventId');
-  let checkinToken = getDoGetParamFirst_(e, 'checkinToken');
-  if (!checkinToken) checkinToken = getDoGetParamFirst_(e, 'token');
 
   if (page === APP.PAGES.ADMIN) {
     try {
@@ -114,33 +112,13 @@ function doGet(e) {
 
   if (page === APP.PAGES.BOARD) {
     const t = HtmlService.createTemplateFromFile('Board');
-    t.bootstrap = getBootstrap_({ page, eventId, checkinToken });
+    t.bootstrap = getBootstrap_({ page, eventId, checkinToken: '' });
     return t.evaluate().setTitle('簽到系統｜看板').setXFrameOptionsMode(HtmlService.XFrameOptionsMode.ALLOWALL);
   }
 
-  let checkinForBootstrap = checkinToken;
-  if (String(eventId || '').trim() && checkinToken) {
-    checkinForBootstrap = resolveCheckinTokenForBootstrap_(eventId, checkinToken);
-  }
   const t = HtmlService.createTemplateFromFile('Checkin');
-  t.bootstrap = getBootstrap_({ page: APP.PAGES.CHECKIN, eventId, checkinToken: checkinForBootstrap });
+  t.bootstrap = getBootstrap_({ page: APP.PAGES.CHECKIN, eventId, checkinToken: '' });
   return t.evaluate().setTitle('簽到系統｜簽到').setXFrameOptionsMode(HtmlService.XFrameOptionsMode.ALLOWALL);
-}
-
-/**
- * 簽到頁載入：若網址 token 仍有效（含上一組／歷史組），改注入伺服端「目前」密鑰，避免稍舊 QR 或 iframe 內網址列與實際可用密鑰不同步。
- */
-function resolveCheckinTokenForBootstrap_(eventId, urlToken) {
-  const eid = String(eventId || '').trim();
-  const got = String(urlToken || '').trim();
-  if (!eid || !got) return got;
-  try {
-    assertPublicEventToken_(eid, got);
-    const latest = String(getEventCheckinToken_(eid) || '').trim();
-    return latest || got;
-  } catch (_e) {
-    return got;
-  }
 }
 
 function include(filename) {

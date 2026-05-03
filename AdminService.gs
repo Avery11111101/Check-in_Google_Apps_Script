@@ -171,7 +171,7 @@ function adminDeleteRoster(payload) {
   throw new Error('找不到人員。');
 }
 
-/** 產生 6 位看板配對碼（現場看板輸入後可取得即時 QR，無須在網址帶 checkinToken）。 */
+/** 產生 6 位看板一次性授權碼（現場看板輸入後換取工作階段；與簽到用 6 位驗證碼不同）。 */
 function adminCreateBoardPairCode(eventId) {
   requireAdmin_();
   const id = String(eventId || '').trim();

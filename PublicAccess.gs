@@ -14,7 +14,7 @@ function eventCheckinTokenRotatedAtKey_(eventId) {
   return 'EVENT_CHECKIN_TOKEN_ROTATED_AT_' + String(eventId || '').trim();
 }
 
-/** 自動輪替時曾生效過的密鑰列表（JSON 陣列），供掃碼稍舊 QR 仍可通過驗證；長度有上限。 */
+/** 自動輪替時曾生效過的密鑰列表（JSON 陣列），供掃描稍舊 QR 仍可通過驗證；長度有上限。 */
 function eventCheckinTokenLegacyKey_(eventId) {
   return 'EVENT_CHECKIN_TOKEN_LEGACY_' + String(eventId || '').trim();
 }
@@ -65,7 +65,12 @@ function getEventCheckinRotateSeconds_(eventId) {
 }
 
 function tokenAuthMismatchError_() {
-  return new Error('簽到連結缺少或錯誤的存取密鑰（checkinToken）。請向管理員取得含密鑰的連結或 QR。');
+  return new Error('缺少或錯誤的現場簽到驗證碼。請向管理員確認目前 6 位數驗證碼，或於看板頁先完成看板授權。');
+}
+
+/** 現場簽到驗證碼：6 位數字（100000–999999）。 */
+function generateCheckinCode_() {
+  return String(Math.floor(100000 + Math.random() * 900000));
 }
 
 /**
@@ -101,7 +106,13 @@ function ensureCheckinTokenRotated_(eventId) {
 
     while (now - rotatedAt >= periodMs) {
       const oldCur = current;
-      current = 'ck_' + Utilities.getUuid().replace(/-/g, '');
+      let next = generateCheckinCode_();
+      let guard = 0;
+      while (next === oldCur && guard < 20) {
+        next = generateCheckinCode_();
+        guard++;
+      }
+      current = next;
       upsertConfig_(eventCheckinTokenPrevKey_(eid), oldCur);
       appendCheckinTokenToLegacy_(eid, oldCur);
       upsertConfig_(eventCheckinTokenKey_(eid), current);
@@ -180,7 +191,7 @@ function touchBoardSession_(sessionToken, eventId) {
 }
 
 /**
- * 看板用：接受正確簽到密鑰，或有效之看板工作階段（bs_…）。
+ * 看板用：僅接受有效之看板工作階段（bs_…）。現場簽到驗證碼不得用於讀取看板（避免掃 QR 旁可見之碼即取得名單）。
  */
 function assertPublicEventTokenOrBoardSession_(eventId, clientCredential) {
   const eid = String(eventId || '').trim();
@@ -188,11 +199,6 @@ function assertPublicEventTokenOrBoardSession_(eventId, clientCredential) {
   const expected = getEventCheckinToken_(eid);
   if (!expected) return;
   const got = String(clientCredential || '').trim();
-  if (got === expected) return;
-  const prev = getEventCheckinTokenPrev_(eid);
-  if (prev && got === prev) return;
-  const legacyBoard = readCheckinTokenLegacyList_(eid);
-  if (legacyBoard.length && legacyBoard.indexOf(got) !== -1) return;
   const sid = getBoardSessionEventId_(got);
   if (sid === eid) {
     touchBoardSession_(got, eid);
@@ -209,7 +215,7 @@ function createBoardPairCodeForEvent_(eventId) {
   const eid = String(eventId || '').trim();
   if (!eid) throw new Error('缺少 eventId。');
   ensureCheckinTokenRotated_(eid);
-  if (!getEventCheckinToken_(eid)) throw new Error('此活動尚未設定簽到密鑰，無須產生看板驗證碼。');
+  if (!getEventCheckinToken_(eid)) throw new Error('此活動尚未設定現場簽到驗證碼，無須產生看板授權碼。');
   const cache = CacheService.getScriptCache();
   const ttl = boardPairTtlSeconds_();
   for (let attempt = 0; attempt < 10; attempt++) {
@@ -230,7 +236,7 @@ function publicExchangeBoardPairCode(eventId, code) {
   if (!eid) throw new Error('請先選擇活動。');
   ensureCheckinTokenRotated_(eid);
   if (!getEventCheckinToken_(eid)) {
-    throw new Error('此活動未設定簽到密鑰，看板不需驗證碼。');
+    throw new Error('此活動未設定現場簽到驗證碼，看板不需授權碼。');
   }
   const digits = String(code || '').replace(/\D/g, '');
   if (digits.length !== 6) throw new Error('請輸入 6 位數驗證碼。');
@@ -257,19 +263,26 @@ function publicExchangeBoardPairCode(eventId, code) {
   return { ok: true, boardSessionToken: sessionToken };
 }
 
-/** 組合簽到頁完整網址（供看板 QR 與輪詢更新）。輪替後一律取最新 current（第二參數僅相容舊呼叫）。 */
-function buildPublicCheckinUrl_(eventId, checkinToken) {
+/** 組合簽到頁完整網址（供看板 QR 與輪詢更新）。不含驗證碼；使用者於簽到頁手動輸入目前 6 位碼。 */
+function buildPublicCheckinUrl_(eventId, _unusedCheckinToken) {
   const id = String(eventId || '').trim();
   ensureCheckinTokenRotated_(id);
   const base = String(getWebAppUrl_() || '')
     .split(/[?#]/)[0]
     .replace(/\/$/, '');
-  var tok = String(getEventCheckinToken_(id) || '').trim();
-  if (!tok && checkinToken != null) tok = String(checkinToken || '').trim();
   if (!id) return '';
-  let path = '?page=checkin&eventId=' + encodeURIComponent(id);
-  if (tok) path += '&checkinToken=' + encodeURIComponent(tok);
+  const path = '?page=checkin&eventId=' + encodeURIComponent(id);
   return base ? base + path : path;
+}
+
+/**
+ * 目前現場簽到驗證碼（6 位數字），供看板／管理端顯示；無設定時空字串。
+ */
+function getCurrentCheckinCodeForDisplay_(eventId) {
+  const eid = String(eventId || '').trim();
+  if (!eid) return '';
+  ensureCheckinTokenRotated_(eid);
+  return String(getEventCheckinToken_(eid) || '').trim();
 }
 
 function invalidateBoardStateCache_(eventId) {

@@ -31,7 +31,7 @@
             <select id="boardEventSelect"><option value="">載入中…</option></select>
           </div>
 
-          <div class="hint boardQrHeroHint" style="margin-top:10px">簽到請掃描畫面<strong>固定角落</strong>之 QR（授權後會顯示，並隨管理員重設密鑰自動更新）。</div>
+          <div class="hint boardQrHeroHint" style="margin-top:10px">簽到請掃描畫面<strong>固定角落</strong>之 QR（看板授權後會顯示；QR 下方為<strong>簽到用 6 位驗證碼</strong>，與管理頁「產生看板授權碼」不同）。</div>
 
           <div id="stats" class="statsBar">
             <span>應到 <strong id="effectiveTotal">0</strong></span>
@@ -57,8 +57,9 @@
     </div>
 
     <div id="boardQrDock" class="boardQrDock" aria-label="簽到 QR">
-      <div class="boardQrDock__label">掃碼簽到</div>
+      <div class="boardQrDock__label">掃描簽到</div>
       <div id="boardQrDockHost" class="qrBox qrBox--dock"></div>
+      <div id="boardQrDockCodeHost" style="max-width:200px;margin:6px auto 0"></div>
       <div id="boardQrDockHint" class="boardQrDock__hint"></div>
       <div id="boardQrDockCountdown" class="boardQrDock__hint" style="margin-top:4px" aria-live="polite"></div>
     </div>
@@ -66,7 +67,7 @@
     <div id="boardPairModal" class="boardPairModal" role="dialog" aria-modal="true" aria-labelledby="boardPairModalTitle">
       <div class="boardPairModal__card">
         <h2 id="boardPairModalTitle" class="boardPairModal__title">看板授權</h2>
-        <p class="hint boardPairModal__text">此活動已設定簽到密鑰。請向管理員索取 <strong>6 位驗證碼</strong>（管理頁「產生看板驗證碼」），輸入後即會顯示名單與角落簽到 QR。</p>
+        <p class="hint boardPairModal__text">此活動已設定現場簽到驗證碼。請向管理員索取<strong>看板 6 位一次性授權碼</strong>（管理頁「產生看板授權碼」），輸入後即會顯示名單與角落簽到 QR（QR 下方另有<strong>簽到用驗證碼</strong>）。</p>
         <input id="boardPairInput" class="boardPairModal__input mono" type="text" inputmode="numeric" maxlength="8" autocomplete="one-time-code" placeholder="6 位數字">
         <div id="boardPairModalErr" class="banner-error" style="display:none;margin-top:10px" role="alert"></div>
         <div class="row boardPairModal__actions">
@@ -82,7 +83,6 @@
     <?!= include('app.js'); ?>
     <script>
       const BOOT = <?= JSON.stringify(bootstrap) ?>;
-      const CHECKIN_TOKEN = String(BOOT.checkinToken || '').trim();
       var BOARD_TRANSITION_LS = 'boardTransitionEnabled';
 
       function getBoardTransitionEnabled(){
@@ -143,13 +143,12 @@
       }
 
       function getBoardAuthCredential(){
-        var s = getBoardSessionToken();
-        if (s) return s;
-        return CHECKIN_TOKEN;
+        return getBoardSessionToken();
       }
 
-      function isCheckinTokenAuthError(msg){
-        return String(msg || '').indexOf('checkinToken') !== -1;
+      function isBoardCredentialAuthError(msg){
+        var s = String(msg || '');
+        return s.indexOf('checkinToken') !== -1 || s.indexOf('看板授權') !== -1 || s.indexOf('現場簽到驗證碼') !== -1;
       }
 
       function boardStateFingerprint(state){
@@ -375,6 +374,7 @@
           latestCheckinUrl = '';
           paintBoardQrDock('');
           syncBoardQrExpiryFromState_(null);
+          if (typeof renderCurrentCheckinCode === 'function') renderCurrentCheckinCode($('#boardQrDockCodeHost'), '');
           return;
         }
         if (boardAuthBlocked && !getBoardAuthCredential()) {
@@ -408,21 +408,26 @@
               latestCheckinUrl = cu;
               paintBoardQrDock(latestCheckinUrl);
             }
-          } else if (credBefore && credBefore === CHECKIN_TOKEN && CHECKIN_TOKEN) {
-            latestCheckinUrl = buildCheckinUrl(BOOT, boardEventId, CHECKIN_TOKEN);
-            paintBoardQrDock(latestCheckinUrl);
+          }
+          if (typeof renderCurrentCheckinCode === 'function') {
+            var cc = (state.currentCheckinCode != null) ? String(state.currentCheckinCode).trim() : '';
+            renderCurrentCheckinCode($('#boardQrDockCodeHost'), cc, function(r){
+              if (r.ok) setToast('已複製驗證碼');
+              else setToast(r.message || '複製失敗', { error: true });
+            });
           }
           setToast('', { error: false });
           $('#eventBadge').textContent = boardEventDisplayLabel();
           setPollBadgeIdle();
         }catch(e){
           syncBoardQrExpiryFromState_(null);
+          if (typeof renderCurrentCheckinCode === 'function') renderCurrentCheckinCode($('#boardQrDockCodeHost'), '');
           const msg = formatApiError(e);
-          if (isCheckinTokenAuthError(msg) && !credBefore) {
+          if (isBoardCredentialAuthError(msg) && !credBefore) {
             boardAuthBlocked = true;
             showPairModal();
             showBoardFetchError('');
-            setToast('請輸入管理員提供的 6 位驗證碼以顯示看板與 QR。', { error: true });
+            setToast('請輸入管理員提供的 6 位看板授權碼以顯示看板與 QR。', { error: true });
           } else {
             setToast(msg, { error: true });
             showBoardFetchError(msg);
@@ -457,21 +462,21 @@
             return;
           }
           if (!meta.checkinQrHasToken) {
-            el.textContent = '未設定簽到密鑰時，此 QR 內連結不會因密鑰輪替而失效。';
+            el.textContent = '未設定現場簽到驗證碼時，無須輸入碼即可簽到；此處不顯示驗證碼。';
             return;
           }
           if (!meta.checkinQrRotateSeconds || meta.checkinQrRotateSeconds < 30) {
-            el.textContent = '簽到密鑰未啟用自動輪替，此 QR 內連結不會自動失效（除非管理員重設密鑰）。';
+            el.textContent = '未啟用驗證碼自動輪替時，簽到驗證碼僅在管理員手動重設時變更。';
             return;
           }
           if (meta.checkinQrInvalidInSeconds == null) {
-            el.textContent = '已啟用自動輪替：伺服端記錄輪替節奏後，將顯示距離連結失效的秒數。';
+            el.textContent = '已啟用自動輪替：伺服端記錄節奏後，將顯示距離驗證碼變更的秒數。';
             return;
           }
           var left = typeof window.__boardQrInvalidAt === 'number'
             ? Math.max(0, Math.ceil((window.__boardQrInvalidAt - Date.now()) / 1000))
             : Math.max(0, Math.floor(Number(meta.checkinQrInvalidInSeconds) || 0));
-          el.textContent = '約 ' + left + ' 秒後，此 QR Code 內含簽到連結將失效（請改掃更新後的圖）。';
+          el.textContent = '約 ' + left + ' 秒後，簽到驗證碼將變更（請改輸入新碼；可繼續掃同一 QR）。';
         }, 1000);
       }
 
@@ -537,6 +542,7 @@
           boardAuthBlocked = false;
           paintBoardQrDock('');
           syncBoardQrExpiryFromState_(null);
+          if (typeof renderCurrentCheckinCode === 'function') renderCurrentCheckinCode($('#boardQrDockCodeHost'), '');
           if (boardEventId) $('#eventBadge').textContent = boardEventDisplayLabel();
         } catch (e) {
           window.__boardEventsList = [];
@@ -556,6 +562,7 @@
         boardAuthBlocked = false;
         paintBoardQrDock('');
         syncBoardQrExpiryFromState_(null);
+        if (typeof renderCurrentCheckinCode === 'function') renderCurrentCheckinCode($('#boardQrDockCodeHost'), '');
         $('#eventBadge').textContent = boardEventDisplayLabel();
         showBoardFetchError('');
         hidePairModal();

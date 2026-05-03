@@ -49,26 +49,20 @@
     return '';
   }
 
-  function appendCheckinTokenQuery_(q, boot){
-    const tok = (boot && boot.checkinToken) ? String(boot.checkinToken).trim() : '';
-    if (!tok) return q;
-    return q + (q.indexOf('?') === -1 ? '?' : '&') + 'checkinToken=' + encodeURIComponent(tok);
-  }
-
   function buildAppLinks(boot){
     const base = resolveWebAppBase(boot) || '';
     const ev = boot && boot.eventId ? ('&eventId=' + encodeURIComponent(boot.eventId)) : '';
     if (base) {
       return {
         admin: base + '?page=admin',
-        checkin: appendCheckinTokenQuery_(base + '?page=checkin' + (boot && boot.eventId ? ev : ''), boot),
-        board: appendCheckinTokenQuery_(base + '?page=board' + (boot && boot.eventId ? ev : ''), boot),
+        checkin: base + '?page=checkin' + (boot && boot.eventId ? ev : ''),
+        board: base + '?page=board' + (boot && boot.eventId ? ev : ''),
       };
     }
     return {
       admin: '?page=admin',
-      checkin: appendCheckinTokenQuery_('?page=checkin' + (boot && boot.eventId ? ev : ''), boot),
-      board: appendCheckinTokenQuery_('?page=board' + (boot && boot.eventId ? ev : ''), boot),
+      checkin: '?page=checkin' + (boot && boot.eventId ? ev : ''),
+      board: '?page=board' + (boot && boot.eventId ? ev : ''),
     };
   }
 
@@ -83,8 +77,8 @@
     const ev = boot && boot.eventId ? ('&eventId=' + encodeURIComponent(boot.eventId)) : '';
     const map = {
       admin: b + '?page=admin',
-      checkin: appendCheckinTokenQuery_(b + '?page=checkin' + (boot && boot.eventId ? ev : ''), boot),
-      board: appendCheckinTokenQuery_(b + '?page=board' + (boot && boot.eventId ? ev : ''), boot),
+      checkin: b + '?page=checkin' + (boot && boot.eventId ? ev : ''),
+      board: b + '?page=board' + (boot && boot.eventId ? ev : ''),
     };
     $all('.nav a[data-nav]').forEach(function(a){
       const k = a.getAttribute('data-nav');
@@ -180,18 +174,55 @@
     return d.toLocaleString('zh-TW', { hour12:false });
   }
 
-  /** 與管理頁 setLinks 相同規則的簽到網址（需已 resolve exec base 時才含完整網域）。 */
-  /**
-   * @param {string} [checkinToken] 若未傳，會嘗試使用 boot.checkinToken（與網址列 ?checkinToken= 一致）。
-   */
-  function buildCheckinUrl(boot, eventId, checkinToken){
+  /** 與管理頁 setLinks 相同規則的簽到網址（不含驗證碼；需已 resolve exec base 時才含完整網域）。 */
+  function buildCheckinUrl(boot, eventId, _unusedToken){
     const id = String(eventId || '').trim();
     if (!id) return '';
     const base = resolveWebAppBase(boot || {});
-    const tok = checkinToken != null ? String(checkinToken).trim() : ((boot && boot.checkinToken) ? String(boot.checkinToken).trim() : '');
-    let path = '?page=checkin&eventId=' + encodeURIComponent(id);
-    if (tok) path += '&checkinToken=' + encodeURIComponent(tok);
+    const path = '?page=checkin&eventId=' + encodeURIComponent(id);
     return base ? (base + path) : path;
+  }
+
+  /**
+   * 在 QR 下方顯示目前 6 位現場簽到驗證碼與複製按鈕；無效或空則隱藏 hostEl。
+   * @param {HTMLElement|null} hostEl
+   * @param {string} code
+   * @param {(r:{ok:boolean,message?:string})=>void} [onCopy]
+   */
+  function renderCurrentCheckinCode(hostEl, code, onCopy){
+    if (!hostEl) return;
+    var c = String(code || '').replace(/\D/g, '').trim();
+    if (!c || c.length !== 6) {
+      while (hostEl.firstChild) hostEl.removeChild(hostEl.firstChild);
+      hostEl.style.display = 'none';
+      return;
+    }
+    hostEl.style.display = '';
+    while (hostEl.firstChild) hostEl.removeChild(hostEl.firstChild);
+    var hint = document.createElement('div');
+    hint.className = 'hint';
+    hint.style.cssText = 'text-align:center;margin-top:6px';
+    hint.textContent = '目前簽到驗證碼（簽到頁滑動送出前須輸入）';
+    var row = document.createElement('div');
+    row.className = 'row';
+    row.style.cssText = 'justify-content:center;align-items:center;gap:8px;margin-top:4px;flex-wrap:wrap';
+    var span = document.createElement('span');
+    span.className = 'mono';
+    span.style.cssText = 'font-size:1.35rem;letter-spacing:0.12em;font-weight:700';
+    span.textContent = c;
+    var btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'secondary';
+    btn.textContent = '複製驗證碼';
+    btn.addEventListener('click', function(){
+      copyTextToClipboard(c).then(function(r){
+        if (typeof onCopy === 'function') onCopy(r);
+      });
+    });
+    row.appendChild(span);
+    row.appendChild(btn);
+    hostEl.appendChild(hint);
+    hostEl.appendChild(row);
   }
 
   /**
