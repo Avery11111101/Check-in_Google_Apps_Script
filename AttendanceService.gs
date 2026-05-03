@@ -7,10 +7,13 @@ function publicSubmitAttendance(payload) {
     const action = String(payload.action || '').trim().toUpperCase(); // IN | OUT
     const font = String(payload.font || '').trim();
     const clientMeta = payload.clientMeta || {};
+    const token = payload && payload.token != null ? String(payload.token) : '';
 
     if (!eventId) throw new Error('缺少 eventId。');
     if (!personId) throw new Error('缺少 personId。');
     if (action !== 'IN' && action !== 'OUT') throw new Error('action 必須是 IN 或 OUT。');
+
+    assertPublicEventToken_(eventId, token);
 
     if (!isEventOpen_(eventId)) throw new Error('此活動尚未開放簽到/簽退。請通知管理員開啟。');
     assertPersonInEvent_(eventId, personId);
@@ -33,14 +36,17 @@ function publicSubmitAttendance(payload) {
 
     writeLog_(eventId, personId, action, now, font, clientMeta);
     setStatus_(eventId, personId, action, now);
+    invalidateBoardStateCache_(eventId);
     return { ok: true, serverTime: serverTimeStr, status: action };
   } finally {
     lock.releaseLock();
   }
 }
 
-function publicGetPersonStatus(eventId, personId) {
-  const s = getStatus_(eventId, personId);
+function publicGetPersonStatus(eventId, personId, token) {
+  const eid = String(eventId || '').trim();
+  assertPublicEventToken_(eid, token);
+  const s = getStatus_(eid, personId);
   /** 一律為純字串，避免 HtmlService 序列化含 Date 時整包變 null（客戶端讀不到 status）。 */
   const lastTimeStr = cellToPlain_(s.lastTime);
   return {

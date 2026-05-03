@@ -1,10 +1,13 @@
 <!DOCTYPE html>
 <html>
   <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+    <meta name="theme-color" content="#0f1115">
     <base target="_top">
     <?!= include('app.css'); ?>
   </head>
-  <body>
+  <body class="page-checkin">
     <div class="appBg">
     <div class="container">
       <div class="topbar">
@@ -39,7 +42,7 @@
 
           <div class="field">
             <label>動作</label>
-            <div class="row">
+            <div class="row checkinActionRow">
               <button type="button" id="btnIn">簽到</button>
               <button type="button" id="btnOut" class="secondary">簽退</button>
             </div>
@@ -54,9 +57,9 @@
             </div>
             <div class="slideBar" id="slideBar">
               <div class="slideText" id="slideHint">往左滑動確認</div>
-              <div class="thumb" id="thumb">滑動</div>
+              <div class="thumb" id="thumb" role="slider" tabindex="0" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0" aria-label="往左滑到底以確認簽到或簽退；亦可用 Enter 送出" aria-busy="false">滑動</div>
             </div>
-            <div class="toast" id="toast"></div>
+            <div class="toast" id="toast" role="status" aria-live="polite"></div>
           </div>
         </div>
 
@@ -72,13 +75,140 @@
     <?!= include('app.js'); ?>
     <script>
       const BOOT = <?= JSON.stringify(bootstrap) ?>;
+      const CHECKIN_TOKEN = String(BOOT.checkinToken || '').trim();
+      /** 由 `google.script.url.getLocation` 填入；null 表示尚未回呼。 */
+      var __gasUrlLocParams = null;
+      /**
+       * HtmlService IFRAME 內：`window.location` 與 `document.referrer` 常無法還原外層 `…/exec?...`；
+       * 須以 `google.script.url.getLocation` 讀取「瀏覽器網址列」對應之查詢參數（官方文件）。
+       */
+      function readParamFromGasUrlLoc_(loc, key){
+        try {
+          if (!loc) return '';
+          var p = loc.parameter || {};
+          if (p[key] != null && String(p[key]).trim() !== '') return String(p[key]).trim();
+          var arr = loc.parameters && loc.parameters[key];
+          if (Array.isArray(arr) && arr.length && arr[0] != null) {
+            var v = String(arr[0]).trim();
+            if (v) return v;
+          }
+        } catch (_e) {}
+        return '';
+      }
+      function bootstrapCheckinFromGasUrl_(done){
+        function finish(obj){
+          __gasUrlLocParams = obj || { eventId: '', checkinToken: '' };
+          if (typeof done === 'function') done();
+        }
+        if (typeof google === 'undefined' || !google.script || !google.script.url || typeof google.script.url.getLocation !== 'function') {
+          finish({});
+          return;
+        }
+        try {
+          google.script.url.getLocation(function(loc){
+            var ev = readParamFromGasUrlLoc_(loc, 'eventId');
+            var tok = readParamFromGasUrlLoc_(loc, 'checkinToken');
+            if (!tok) tok = readParamFromGasUrlLoc_(loc, 'token');
+            finish({ eventId: ev, checkinToken: tok });
+          });
+        } catch (_e2) {
+          finish({});
+        }
+      }
+      function getExecContextSearchParams(){
+        function mergeFromUrl(params, urlStr){
+          try {
+            var u = new URL(String(urlStr || ''), 'https://script.google.com');
+            var s = u.searchParams;
+            ['eventId', 'checkinToken', 'token', 'page'].forEach(function(k){
+              var v = s.get(k);
+              if (v != null && String(v).trim() !== '') params.set(k, String(v).trim());
+            });
+          } catch (_e) {}
+        }
+        try {
+          var acc = new URLSearchParams();
+          mergeFromUrl(acc, String(window.location && window.location.href || ''));
+          mergeFromUrl(acc, String(document.referrer || ''));
+          return acc;
+        } catch (_e2) {
+          return new URLSearchParams();
+        }
+      }
+      function getEffectiveLockedEventId(){
+        var b = String(BOOT.eventId || '').trim();
+        if (b) return b;
+        if (__gasUrlLocParams && String(__gasUrlLocParams.eventId || '').trim()) {
+          return String(__gasUrlLocParams.eventId).trim();
+        }
+        try {
+          return String(getExecContextSearchParams().get('eventId') || '').trim();
+        } catch (_e) {
+          return '';
+        }
+      }
+      /**
+       * 與公開 API 呼叫一致：優先 BOOT（doGet 已解析／升級），次為 `google.script.url.getLocation`，
+       * 再以 location＋referrer 為後援，最後常數。
+       */
+      function getEffectiveCheckinToken(){
+        var boot = String(BOOT.checkinToken || '').trim();
+        if (boot) return boot;
+        if (__gasUrlLocParams && String(__gasUrlLocParams.checkinToken || '').trim()) {
+          return String(__gasUrlLocParams.checkinToken).trim();
+        }
+        try {
+          var q = getExecContextSearchParams();
+          var u = String(q.get('checkinToken') || q.get('token') || '').trim();
+          if (u) return u;
+        } catch (_e) {}
+        return CHECKIN_TOKEN;
+      }
       document.getElementById('topNav').appendChild(renderTopbarNav(BOOT));
       refreshNavExecBaseFromServer(BOOT);
       let action = null; // IN | OUT
       let busy = false;
       let ROSTER_FULL = [];
+      let checkinToastTimer = null;
 
-      function setToast(msg){ $('#toast').textContent = msg || ''; }
+      function setToast(msg, opts){
+        const el = $('#toast');
+        if (!el) return;
+        if (checkinToastTimer) {
+          clearTimeout(checkinToastTimer);
+          checkinToastTimer = null;
+        }
+        el.textContent = msg || '';
+        const err = !!(opts && opts.error);
+        el.classList.toggle('toast--error', err);
+        el.setAttribute('role', err ? 'alert' : 'status');
+        if (!msg) return;
+        const clearMs = opts && Object.prototype.hasOwnProperty.call(opts, 'clearMs')
+          ? opts.clearMs
+          : (err ? null : 3800);
+        if (clearMs != null && clearMs > 0) {
+          checkinToastTimer = setTimeout(function(){
+            el.textContent = '';
+            el.classList.remove('toast--error');
+            el.setAttribute('role', 'status');
+            checkinToastTimer = null;
+          }, clearMs);
+        }
+      }
+
+      function setCheckinSubmittingUi(is){
+        const inEl = $('#btnIn');
+        const outEl = $('#btnOut');
+        const thumb = $('#thumb');
+        const bar = $('#slideBar');
+        if (inEl) inEl.disabled = is;
+        if (outEl) outEl.disabled = is;
+        if (thumb) {
+          thumb.setAttribute('aria-busy', is ? 'true' : 'false');
+          thumb.classList.toggle('is-busy', is);
+        }
+        if (bar) bar.classList.toggle('is-busy', is);
+      }
 
       function styleCheckinActionButtons(){
         const inEl = $('#btnIn');
@@ -105,6 +235,30 @@
         return h ? !!h.isOpen : null;
       }
 
+      function syncCheckinInteractiveDisabled(){
+        if (busy) return;
+        const id = $('#eventSelect').value.trim();
+        const open = getCheckinSelectedEventOpen();
+        var gatedOff = !!id && open === false;
+        var inEl = $('#btnIn');
+        var outEl = $('#btnOut');
+        var thumb = $('#thumb');
+        var bar = $('#slideBar');
+        var hint = $('#slideHint');
+        if (inEl) inEl.disabled = gatedOff;
+        if (outEl) outEl.disabled = gatedOff;
+        if (thumb) {
+          thumb.setAttribute('aria-disabled', gatedOff ? 'true' : 'false');
+          thumb.tabIndex = gatedOff ? -1 : 0;
+          thumb.style.pointerEvents = gatedOff ? 'none' : '';
+        }
+        if (bar) {
+          bar.classList.toggle('is-gated', gatedOff);
+          bar.setAttribute('aria-disabled', gatedOff ? 'true' : 'false');
+        }
+        if (hint) hint.textContent = gatedOff ? '活動尚未開放簽到' : '往左滑動確認';
+      }
+
       function updateCheckinGateStatusUi(){
         const badge = $('#checkinGateStatus');
         if (!badge) return;
@@ -112,6 +266,7 @@
         if (!id) {
           badge.style.display = 'none';
           badge.innerHTML = '';
+          syncCheckinInteractiveDisabled();
           return;
         }
         const open = getCheckinSelectedEventOpen();
@@ -121,6 +276,7 @@
         } else {
           badge.innerHTML = '<span class="dot not"></span><span>本活動管理狀態：<strong>尚未開放簽到</strong></span>';
         }
+        syncCheckinInteractiveDisabled();
       }
 
       function setAction(next){
@@ -150,21 +306,27 @@
           $('#personSelect').innerHTML = '<option value=\"\">請先選擇活動</option>';
           return;
         }
-        const roster = await api('publicListRoster', eventId);
-        ROSTER_FULL = Array.isArray(roster) ? roster : [];
-        applyPersonFilter(($('#personSearch').value || '').trim());
+        try {
+          const roster = await api('publicListRoster', eventId, getEffectiveCheckinToken());
+          ROSTER_FULL = Array.isArray(roster) ? roster : [];
+          applyPersonFilter(($('#personSearch').value || '').trim());
+        } catch (e) {
+          ROSTER_FULL = [];
+          $('#personSelect').innerHTML = '<option value=\"\">名單載入失敗</option>';
+          setToast(formatApiError(e), { error: true });
+        }
       }
 
       async function loadEventsCheckin(){
         const sel = $('#eventSelect');
         const hint = $('#eventHint');
-        const locked = String(BOOT.eventId || '').trim();
+        const locked = getEffectiveLockedEventId();
         try {
           const raw = await api('publicListBoardEvents');
           const events = (raw && raw.events) ? raw.events : [];
           window.__checkinEventsList = events;
           sel.innerHTML = '<option value=\"\">請選擇活動</option>' + events.map(function(e){
-            const label = (e.name || e.eventId) + (e.isOpen ? '' : '（未開放簽到）');
+            const label = (e.name || e.eventId);
             return '<option value=\"' + esc(e.eventId) + '\">' + esc(label) + '</option>';
           }).join('');
           if (locked) {
@@ -173,7 +335,7 @@
               sel.disabled = true;
               hint.textContent = '已由簽到連結或 QR Code 指定活動。';
             } else {
-              hint.textContent = '連結中的活動不存在或已不在清單中，請改選下方活動或洽管理員。';
+              hint.textContent = '連結中的活動不存在、尚未開放簽到（未列入選單）或已停用，請改選下方活動或洽管理員。';
               sel.disabled = false;
             }
           } else {
@@ -188,7 +350,7 @@
           await refreshStatus();
         } catch (e) {
           sel.innerHTML = '<option value=\"\">載入失敗</option>';
-          hint.textContent = '無法載入活動清單：' + (e && e.message ? e.message : String(e));
+          hint.textContent = '無法載入活動清單：' + formatApiError(e);
           window.__checkinEventsList = [];
           updateCheckinGateStatusUi();
         }
@@ -198,38 +360,45 @@
         const eventId = $('#eventSelect').value.trim();
         const personId = $('#personSelect').value;
         if (!eventId || !personId){ $('#statusBox').textContent = '請先選擇活動與姓名。'; return; }
-        const s = await api('publicGetPersonStatus', eventId, personId);
-        if (!s || typeof s !== 'object') {
-          $('#statusBox').textContent = '無法讀取狀態，請重新整理頁面。';
-          return;
+        try {
+          const s = await api('publicGetPersonStatus', eventId, personId, getEffectiveCheckinToken());
+          if (!s || typeof s !== 'object') {
+            $('#statusBox').textContent = '無法讀取狀態，請重新整理頁面。';
+            return;
+          }
+          $('#statusBox').innerHTML = `
+            <div class="pill"><span class="dot ${s.status==='IN'?'ok':(s.status==='OUT'?'bad':'')}"></span>
+              <span>${esc(s.statusLabel)}</span>
+            </div>
+            <div style="margin-top:10px" class="hint">最後時間：<span class="mono">${esc(s.lastTime ? fmtTs(s.lastTime) : '—')}</span></div>
+          `;
+        } catch (e) {
+          $('#statusBox').innerHTML = '<div class="banner-error" style="display:block">' + esc(formatApiError(e)) + '</div>';
         }
-        $('#statusBox').innerHTML = `
-          <div class="pill"><span class="dot ${s.status==='IN'?'ok':(s.status==='OUT'?'bad':'')}"></span>
-            <span>${esc(s.statusLabel)}</span>
-          </div>
-          <div style="margin-top:10px" class="hint">最後時間：<span class="mono">${esc(s.lastTime ? fmtTs(s.lastTime) : '—')}</span></div>
-        `;
       }
 
       async function submit(){
         if (busy) return;
         const eventId = $('#eventSelect').value.trim();
         const personId = $('#personSelect').value;
-        if (!eventId) return setToast('請選擇活動。');
-        if (!personId) return setToast('請先選擇姓名。');
-        if (!action) return setToast('請先選擇「簽到」或「簽退」。');
+        if (!eventId) return setToast('請選擇活動。', { clearMs: 3200 });
+        if (!personId) return setToast('請先選擇姓名。', { clearMs: 3200 });
+        if (!action) return setToast('請先選擇「簽到」或「簽退」。', { clearMs: 3200 });
         busy = true;
-        setToast('送出中…');
+        setCheckinSubmittingUi(true);
+        setToast('送出中…', { clearMs: null });
         try{
-          const res = await api('publicSubmitAttendance', { eventId, personId, action, font: '', clientMeta: { ua:navigator.userAgent } });
+          const res = await api('publicSubmitAttendance', { eventId, personId, action, font: '', token: getEffectiveCheckinToken(), clientMeta: { ua:navigator.userAgent } });
           var st = (res && res.serverTime != null && String(res.serverTime) !== '') ? String(res.serverTime) : '';
           $('#serverTime').textContent = st ? ('伺服器時間 ' + fmtTs(st)) : '';
-          setToast(action === 'IN' ? '簽到完成' : '簽退完成');
+          setToast(action === 'IN' ? '簽到完成' : '簽退完成', { clearMs: 3800 });
           await refreshStatus();
         }catch(e){
-          setToast(e && e.message ? e.message : String(e));
+          setToast(formatApiError(e), { error: true });
         }finally{
           busy = false;
+          setCheckinSubmittingUi(false);
+          syncCheckinInteractiveDisabled();
         }
       }
 
@@ -240,14 +409,40 @@
         let startX = 0;
         let startRight = 6;
 
+        function trackReady(){
+          var w = bar.clientWidth;
+          var tw = thumb.clientWidth;
+          return w > 0 && tw > 0 && w >= tw + 12;
+        }
+
         function setRight(px){
-          const maxRight = 6;
-          const minRight = bar.clientWidth - thumb.clientWidth - 6;
-          const r = Math.max(minRight, Math.min(maxRight, px));
+          var maxRight = 6;
+          if (!trackReady()) {
+            thumb.style.right = maxRight + 'px';
+            return maxRight;
+          }
+          var minRight = bar.clientWidth - thumb.clientWidth - 6;
+          if (minRight >= maxRight) {
+            thumb.style.right = maxRight + 'px';
+            return maxRight;
+          }
+          var r = Math.max(minRight, Math.min(maxRight, px));
           thumb.style.right = r + 'px';
           return r;
         }
         function reset(){ thumb.style.right = '6px'; }
+
+        function onSlideBarResize(){
+          if (dragging) return;
+          reset();
+        }
+        if (typeof ResizeObserver !== 'undefined' && bar) {
+          try {
+            var ro = new ResizeObserver(function(){ onSlideBarResize(); });
+            ro.observe(bar);
+          } catch (_e) {}
+        }
+        window.addEventListener('resize', onSlideBarResize);
 
         function onDown(ev){
           if (busy) return;
@@ -262,16 +457,25 @@
           const x = (ev.touches ? ev.touches[0].clientX : ev.clientX);
           const dx = x - startX;
           const right = setRight(startRight - dx);
-          const minRight = bar.clientWidth - thumb.clientWidth - 6;
-          if (right <= minRight + 2){
-            dragging = false;
-            await submit();
-            reset();
+          if (trackReady()) {
+            const minRight = bar.clientWidth - thumb.clientWidth - 6;
+            if (right <= minRight + 2){
+              dragging = false;
+              await submit();
+              reset();
+            }
           }
           ev.preventDefault();
         }
         function onUp(){ dragging = false; }
 
+        thumb.addEventListener('keydown', function(ev){
+          if (busy) return;
+          if (ev.key === 'Enter' || ev.key === ' ') {
+            ev.preventDefault();
+            void submit();
+          }
+        });
         thumb.addEventListener('mousedown', onDown);
         thumb.addEventListener('touchstart', onDown, { passive:false });
         window.addEventListener('mousemove', onMove, { passive:false });
@@ -286,19 +490,21 @@
         $('#personSearch').value = '';
         updateCheckinGateStatusUi();
         styleCheckinActionButtons();
-        await refreshRoster();
-        await refreshStatus();
+        try {
+          await refreshRoster();
+          await refreshStatus();
+        } catch (_e) {}
       });
       $('#personSearch').addEventListener('input', function(){
         applyPersonFilter(($('#personSearch').value || '').trim());
       });
-      $('#personSelect').addEventListener('change', refreshStatus);
+      $('#personSelect').addEventListener('change', function(){ void refreshStatus(); });
 
       setAction(null);
       initSlide();
-      (async () => {
-        await loadEventsCheckin();
-      })();
+      bootstrapCheckinFromGasUrl_(function(){
+        void loadEventsCheckin();
+      });
     </script>
   </body>
 </html>

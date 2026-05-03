@@ -5,7 +5,7 @@
     <?!= include('app.css'); ?>
     <?!= include('qrlib.js'); ?>
   </head>
-  <body>
+  <body class="page-board">
     <div class="appBg">
     <div class="container">
       <div class="topbar">
@@ -15,6 +15,10 @@
         </div>
         <div class="topActions">
           <div id="topNav"></div>
+          <label class="badge boardAnimToggle" style="display:inline-flex;align-items:center;gap:6px;cursor:pointer;user-select:none;font:inherit">
+            <input type="checkbox" id="chkBoardTransition" checked>
+            <span>名單動畫</span>
+          </label>
           <div class="badge mono" id="eventBadge"></div>
           <div class="badge mono" id="pollBadge"></div>
         </div>
@@ -27,17 +31,14 @@
             <select id="boardEventSelect"><option value="">載入中…</option></select>
           </div>
 
-          <div class="boardQrHero">
-            <div class="boardQrTitle">掃碼簽到</div>
-            <div id="boardQrHost" class="qrBox qrBox--board"></div>
-            <div id="boardQrHint" class="hint boardQrHint"></div>
-          </div>
+          <div class="hint boardQrHeroHint" style="margin-top:10px">簽到請掃描畫面<strong>固定角落</strong>之 QR（授權後會顯示，並隨管理員重設密鑰自動更新）。</div>
 
           <div id="stats" class="statsBar">
             <span>應到 <strong id="effectiveTotal">0</strong></span>
-            <span>/ 實到 <strong id="signedCount">0</strong></span>
-            <span>/ 未簽 <strong id="notYetCount">0</strong></span>
-            <span>（出席率 <strong id="attendanceRate">0%</strong>）</span>
+            <span>／實到 <strong id="signedCount">0</strong></span>
+            <span>／未簽 <strong id="notYetCount">0</strong></span>
+            <span>／已簽退 <strong id="signedOutCount">0</strong></span>
+            <span>（出席率 <strong id="attendanceRate">0%</strong>，以目前在場計）</span>
             <span class="badge mono" id="updatedAt"></span>
           </div>
 
@@ -47,6 +48,7 @@
             <div class="pill"><span class="dot bad"></span><span>已簽退</span></div>
           </div>
 
+          <div id="boardFetchError" class="banner-error" style="display:none;margin-top:10px" role="alert"></div>
           <div id="board"></div>
           <div class="toast" id="toast"></div>
         </div>
@@ -54,32 +56,213 @@
     </div>
     </div>
 
+    <div id="boardQrDock" class="boardQrDock" aria-label="簽到 QR">
+      <div class="boardQrDock__label">掃碼簽到</div>
+      <div id="boardQrDockHost" class="qrBox qrBox--dock"></div>
+      <div id="boardQrDockHint" class="boardQrDock__hint"></div>
+      <div id="boardQrDockCountdown" class="boardQrDock__hint" style="margin-top:4px" aria-live="polite"></div>
+    </div>
+
+    <div id="boardPairModal" class="boardPairModal" role="dialog" aria-modal="true" aria-labelledby="boardPairModalTitle">
+      <div class="boardPairModal__card">
+        <h2 id="boardPairModalTitle" class="boardPairModal__title">看板授權</h2>
+        <p class="hint boardPairModal__text">此活動已設定簽到密鑰。請向管理員索取 <strong>6 位驗證碼</strong>（管理頁「產生看板驗證碼」），輸入後即會顯示名單與角落簽到 QR。</p>
+        <input id="boardPairInput" class="boardPairModal__input mono" type="text" inputmode="numeric" maxlength="8" autocomplete="one-time-code" placeholder="6 位數字">
+        <div id="boardPairModalErr" class="banner-error" style="display:none;margin-top:10px" role="alert"></div>
+        <div class="row boardPairModal__actions">
+          <button type="button" id="boardPairSubmit">確認</button>
+        </div>
+      </div>
+    </div>
+
+    <div id="boardTransitionLayer" class="boardTransitionLayer" aria-hidden="true">
+      <div class="boardTransitionLayer__panel"></div>
+    </div>
+
     <?!= include('app.js'); ?>
     <script>
       const BOOT = <?= JSON.stringify(bootstrap) ?>;
+      const CHECKIN_TOKEN = String(BOOT.checkinToken || '').trim();
+      var BOARD_TRANSITION_LS = 'boardTransitionEnabled';
+
+      function getBoardTransitionEnabled(){
+        try {
+          var v = localStorage.getItem(BOARD_TRANSITION_LS);
+          if (v === '1') return true;
+          if (v === '0') return false;
+        } catch (_e) {}
+        return BOOT.boardTransitionDefault !== false;
+      }
+
+      function setBoardTransitionEnabled(on){
+        try {
+          localStorage.setItem(BOARD_TRANSITION_LS, on ? '1' : '0');
+        } catch (_e) {}
+      }
+
+      function syncBoardTransitionCheckbox(){
+        var chk = $('#chkBoardTransition');
+        if (chk) chk.checked = getBoardTransitionEnabled();
+      }
+
       document.getElementById('topNav').appendChild(renderTopbarNav(BOOT));
-      const POLL_SECONDS = Number(<?= JSON.stringify(PropertiesService.getScriptProperties().getProperty('POLL_SECONDS') || '3') ?>);
-      /** 看板實際輪詢間隔（秒）：不低於 5 秒，減輕試算表讀取頻率。 */
-      const BOARD_POLL_SECONDS = Math.max(5, POLL_SECONDS);
-      const BOARD_QR_PX = 360;
+      syncBoardTransitionCheckbox();
+      var chkBoardTransitionEl = $('#chkBoardTransition');
+      if (chkBoardTransitionEl) {
+        chkBoardTransitionEl.addEventListener('change', function(){
+          setBoardTransitionEnabled(!!chkBoardTransitionEl.checked);
+        });
+      }
+      /** 看板輪詢固定每 5 秒（與簽到頁 POLL_SECONDS 分離）。 */
+      const BOARD_POLL_SECONDS = 5;
+      const BOARD_QR_DOCK_PX = 120;
 
       let boardEventId = String(BOOT.eventId || new URLSearchParams(location.search).get('eventId') || '').trim();
       let pollTimer = null;
       let tickBusy = false;
+      let lastBoardFp = '';
+      let latestCheckinUrl = '';
+      let boardAuthBlocked = false;
 
-      function setToast(msg){ $('#toast').textContent = msg || ''; }
+      function boardSessStorageKey(){
+        return 'boardSess_' + String(boardEventId || '').trim();
+      }
 
-      function paintBoardQr(){
-        const host = $('#boardQrHost');
-        const hint = $('#boardQrHint');
-        const url = buildCheckinUrl(BOOT, boardEventId);
-        if (!boardEventId || !url) {
-          renderQrInHost(host, '', BOARD_QR_PX);
-          if (hint) hint.textContent = '請先從上方選擇活動，即可顯示簽到 QR。';
+      function getBoardSessionToken(){
+        try {
+          return String(sessionStorage.getItem(boardSessStorageKey()) || '').trim();
+        } catch (_e) {
+          return '';
+        }
+      }
+
+      function setBoardSessionToken(tok){
+        try {
+          sessionStorage.setItem(boardSessStorageKey(), String(tok || '').trim());
+        } catch (_e) {}
+      }
+
+      function getBoardAuthCredential(){
+        var s = getBoardSessionToken();
+        if (s) return s;
+        return CHECKIN_TOKEN;
+      }
+
+      function isCheckinTokenAuthError(msg){
+        return String(msg || '').indexOf('checkinToken') !== -1;
+      }
+
+      function boardStateFingerprint(state){
+        if (!state || !state.groups) return '';
+        try {
+          return JSON.stringify((state.groups || []).map(function(g){
+            return {
+              gid: g.groupId || (String(g.category || '') + '\t' + String(g.groupName || '')),
+              people: (g.people || []).map(function(p){
+                return [p.personId, p.status, p.lastTime || ''];
+              })
+            };
+          }));
+        } catch (_e) {
+          return String(Date.now());
+        }
+      }
+
+      function showPairModal(){
+        var m = $('#boardPairModal');
+        if (!m) return;
+        m.classList.add('boardPairModal--open');
+        var inp = $('#boardPairInput');
+        if (inp) { inp.value = ''; inp.focus(); }
+        var er = $('#boardPairModalErr');
+        if (er) { er.style.display = 'none'; er.textContent = ''; }
+      }
+
+      function hidePairModal(){
+        var m = $('#boardPairModal');
+        if (m) m.classList.remove('boardPairModal--open');
+      }
+
+      function playBoardTransition(){
+        return new Promise(function(resolve){
+          if (!getBoardTransitionEnabled()) {
+            resolve();
+            return;
+          }
+          var layer = $('#boardTransitionLayer');
+          if (!layer) {
+            resolve();
+            return;
+          }
+          var panel = layer.querySelector('.boardTransitionLayer__panel');
+          layer.style.display = 'block';
+          layer.classList.remove('boardTransitionLayer--out');
+          layer.classList.remove('boardTransitionLayer--in');
+          void layer.offsetWidth;
+          layer.classList.add('boardTransitionLayer--in');
+          window.setTimeout(function(){
+            window.setTimeout(function(){
+              layer.classList.remove('boardTransitionLayer--in');
+              layer.classList.add('boardTransitionLayer--out');
+              var fin = function(){
+                layer.classList.remove('boardTransitionLayer--out');
+                layer.style.display = 'none';
+                if (panel) panel.removeEventListener('transitionend', fin);
+                resolve();
+              };
+              if (panel) panel.addEventListener('transitionend', fin, { once: true });
+              window.setTimeout(fin, 520);
+            }, 720);
+          }, 420);
+        });
+      }
+
+      function paintBoardQrDock(url){
+        var host = $('#boardQrDockHost');
+        var hint = $('#boardQrDockHint');
+        var u = String(url || '').trim();
+        if (!boardEventId || !u) {
+          renderQrInHost(host, '', BOARD_QR_DOCK_PX);
+          if (hint) {
+            hint.textContent = !boardEventId
+              ? ''
+              : (getBoardAuthCredential() ? '載入 QR…' : '請完成驗證後顯示');
+          }
           return;
         }
         if (hint) hint.textContent = '';
-        renderQrInHost(host, url, BOARD_QR_PX);
+        renderQrInHost(host, u, BOARD_QR_DOCK_PX);
+      }
+
+      function setToast(msg, opts){
+        const el = $('#toast');
+        if (!el) return;
+        el.textContent = msg || '';
+        el.classList.toggle('toast--error', !!(opts && opts.error));
+      }
+
+      function showBoardFetchError(msg){
+        const el = $('#boardFetchError');
+        if (!el) return;
+        if (msg) {
+          el.textContent = msg;
+          el.style.display = 'block';
+        } else {
+          el.textContent = '';
+          el.style.display = 'none';
+        }
+      }
+
+      function boardEventDisplayLabel(){
+        if (!boardEventId) return '未選活動';
+        const list = window.__boardEventsList || [];
+        const hit = list.find(function(x){ return x.eventId === boardEventId; });
+        const name = hit && (hit.name != null && String(hit.name).trim()) ? String(hit.name).trim() : '';
+        return name || boardEventId;
+      }
+
+      function setPollBadgeIdle(){
+        $('#pollBadge').textContent = '輪詢 ' + BOARD_POLL_SECONDS + 's';
       }
 
       function syncBoardUrl(){
@@ -88,6 +271,8 @@
           u.searchParams.set('page', 'board');
           if (boardEventId) u.searchParams.set('eventId', boardEventId);
           else u.searchParams.delete('eventId');
+          u.searchParams.delete('checkinToken');
+          u.searchParams.delete('token');
           history.replaceState(null, '', u.pathname + u.search + u.hash);
         } catch (_e) {}
       }
@@ -96,17 +281,22 @@
         $('#effectiveTotal').textContent = '0';
         $('#signedCount').textContent = '0';
         $('#notYetCount').textContent = '0';
+        var soc0 = $('#signedOutCount');
+        if (soc0) soc0.textContent = '0';
         $('#attendanceRate').textContent = '0.0%';
         $('#updatedAt').textContent = '';
         $('#board').innerHTML = '<div class="hint" style="margin-top:10px">' + esc(msg || '') + '</div>';
+        showBoardFetchError('');
       }
 
       function render(state){
         if (!state || typeof state !== 'object') {
           $('#updatedAt').textContent = '';
           $('#board').innerHTML = '<div class="hint" style="margin-top:10px">無法載入看板資料（請重新整理或稍後再試）。</div>';
+          showBoardFetchError('');
           return;
         }
+        showBoardFetchError('');
         var ts = (state.now != null && String(state.now) !== '') ? fmtTs(state.now) : '—';
         $('#updatedAt').textContent = '更新 ' + ts;
         const groups = state.groups || [];
@@ -115,58 +305,129 @@
           return;
         }
 
-        let signed = 0, notYet = 0;
-        groups.forEach(g => (g.people || []).forEach(p => {
-          if (p.status === 'IN') signed++;
-          else notYet++;
-        }));
-        const total = signed + notYet;
+        let signed = 0, notYet = 0, signedOut = 0;
+        groups.forEach(function(g){
+          (g.people || []).forEach(function(p){
+            if (p.status === 'IN') signed++;
+            else if (p.status === 'OUT') signedOut++;
+            else notYet++;
+          });
+        });
+        const total = signed + notYet + signedOut;
         $('#effectiveTotal').textContent = String(total);
         $('#signedCount').textContent = String(signed);
         $('#notYetCount').textContent = String(notYet);
+        var soc1 = $('#signedOutCount');
+        if (soc1) soc1.textContent = String(signedOut);
         const rate = total > 0 ? ((signed / total) * 100).toFixed(1) : '0.0';
         $('#attendanceRate').textContent = rate + '%';
 
-        $('#board').innerHTML = groups.map(g => {
-          const peopleHtml = (g.people || []).map(p => {
+        $('#board').innerHTML = groups.map(function(g){
+          const peopleHtml = (g.people || []).map(function(p){
             const tagClass = p.status === 'IN' ? 'ok' : p.status === 'OUT' ? 'bad' : 'not';
-            return `
-              <div class="person">
-                <div>
-                  <div class="name">${esc(p.displayName)}</div>
-                  <div class="meta">${esc(p.category)} / ${esc(p.groupName)}　<span class="mono">${esc(p.lastTime ? fmtTs(p.lastTime) : '')}</span></div>
-                </div>
-                <div class="statusTag ${tagClass}">${esc(p.statusLabel)}</div>
-              </div>
-            `;
+            return (
+              '<div class="person">' +
+                '<div>' +
+                  '<div class="name">' + esc(p.displayName) + '</div>' +
+                  '<div class="meta">' + esc(p.category) + ' / ' + esc(p.groupName) + '　<span class="mono">' + esc(p.lastTime ? fmtTs(p.lastTime) : '') + '</span></div>' +
+                '</div>' +
+                '<div class="statusTag ' + tagClass + '">' + esc(p.statusLabel) + '</div>' +
+              '</div>'
+            );
           }).join('');
-          return `
-            <div class="groupTitle">${esc(g.category)}｜${esc(g.groupName)}</div>
-            <div class="boardCols">${peopleHtml}</div>
-          `;
+          return (
+            '<div class="groupTitle">' + esc(g.category) + '｜' + esc(g.groupName) + '</div>' +
+            '<div class="boardCols">' + peopleHtml + '</div>'
+          );
         }).join('');
+      }
+
+      function syncBoardQrExpiryFromState_(state){
+        if (!state || typeof state !== 'object') {
+          window.__boardQrExpiryMeta = null;
+          window.__boardQrInvalidAt = null;
+          return;
+        }
+        var hasTok = state.checkinQrHasToken === true;
+        var rs = Number(state.checkinQrRotateSeconds);
+        if (!isFinite(rs)) rs = 0;
+        var invRaw = state.checkinQrInvalidInSeconds;
+        var invSec = invRaw != null && isFinite(Number(invRaw)) ? Number(invRaw) : null;
+        window.__boardQrExpiryMeta = {
+          checkinQrHasToken: hasTok,
+          checkinQrRotateSeconds: rs,
+          checkinQrInvalidInSeconds: invSec,
+        };
+        if (invSec != null) {
+          window.__boardQrInvalidAt = Date.now() + invSec * 1000;
+        } else {
+          window.__boardQrInvalidAt = null;
+        }
       }
 
       async function tick(){
         if (!boardEventId) {
-          setToast('請選擇活動。');
+          setToast('', { error: false });
           renderEmptyBoard('請先從上方選擇活動。');
           $('#eventBadge').textContent = '未選活動';
-          $('#pollBadge').textContent = '輪詢 ' + BOARD_POLL_SECONDS + 's';
+          setPollBadgeIdle();
+          showBoardFetchError('');
+          latestCheckinUrl = '';
+          paintBoardQrDock('');
+          syncBoardQrExpiryFromState_(null);
           return;
         }
-        $('#eventBadge').textContent = 'eventId ' + boardEventId;
-        $('#pollBadge').textContent = '輪詢 ' + BOARD_POLL_SECONDS + 's';
+        if (boardAuthBlocked && !getBoardAuthCredential()) {
+          $('#eventBadge').textContent = boardEventDisplayLabel();
+          $('#pollBadge').textContent = '等待驗證';
+          return;
+        }
+        $('#eventBadge').textContent = boardEventDisplayLabel();
+        $('#pollBadge').textContent = '更新中…';
+        var credBefore = getBoardAuthCredential();
         try{
-          const state = await api('publicGetBoardState', boardEventId);
+          const state = await api('publicGetBoardState', boardEventId, credBefore);
           if (!state || typeof state !== 'object') {
-            setToast('看板資料回傳異常，請重新整理頁面。');
+            setToast('看板資料回傳異常，請重新整理頁面。', { error: true });
+            showBoardFetchError('看板資料回傳異常，請重新整理頁面。');
+            setPollBadgeIdle();
             return;
           }
+          boardAuthBlocked = false;
+          hidePairModal();
+          var nextFp = boardStateFingerprint(state);
+          if (lastBoardFp && lastBoardFp !== nextFp) {
+            await playBoardTransition();
+          }
+          lastBoardFp = nextFp;
           render(state);
-          setToast('');
+          syncBoardQrExpiryFromState_(state);
+          var cu = (state.checkinUrl != null) ? String(state.checkinUrl).trim() : '';
+          if (cu) {
+            if (cu !== latestCheckinUrl) {
+              latestCheckinUrl = cu;
+              paintBoardQrDock(latestCheckinUrl);
+            }
+          } else if (credBefore && credBefore === CHECKIN_TOKEN && CHECKIN_TOKEN) {
+            latestCheckinUrl = buildCheckinUrl(BOOT, boardEventId, CHECKIN_TOKEN);
+            paintBoardQrDock(latestCheckinUrl);
+          }
+          setToast('', { error: false });
+          $('#eventBadge').textContent = boardEventDisplayLabel();
+          setPollBadgeIdle();
         }catch(e){
-          setToast(e && e.message ? e.message : String(e));
+          syncBoardQrExpiryFromState_(null);
+          const msg = formatApiError(e);
+          if (isCheckinTokenAuthError(msg) && !credBefore) {
+            boardAuthBlocked = true;
+            showPairModal();
+            showBoardFetchError('');
+            setToast('請輸入管理員提供的 6 位驗證碼以顯示看板與 QR。', { error: true });
+          } else {
+            setToast(msg, { error: true });
+            showBoardFetchError(msg);
+          }
+          setPollBadgeIdle();
         }
       }
 
@@ -174,6 +435,44 @@
         var base = BOARD_POLL_SECONDS * 1000;
         if (typeof document !== 'undefined' && document.visibilityState === 'hidden') return base * 3;
         return base;
+      }
+
+      var __boardQrDockCountdownTimer = null;
+      function ensureBoardQrDockCountdownTimer_(){
+        if (__boardQrDockCountdownTimer) return;
+        __boardQrDockCountdownTimer = setInterval(function(){
+          var el = $('#boardQrDockCountdown');
+          if (!el) return;
+          if (!boardEventId) {
+            el.textContent = '';
+            return;
+          }
+          if (boardAuthBlocked && !getBoardAuthCredential()) {
+            el.textContent = '';
+            return;
+          }
+          var meta = window.__boardQrExpiryMeta;
+          if (!meta) {
+            el.textContent = '';
+            return;
+          }
+          if (!meta.checkinQrHasToken) {
+            el.textContent = '未設定簽到密鑰時，此 QR 內連結不會因密鑰輪替而失效。';
+            return;
+          }
+          if (!meta.checkinQrRotateSeconds || meta.checkinQrRotateSeconds < 30) {
+            el.textContent = '簽到密鑰未啟用自動輪替，此 QR 內連結不會自動失效（除非管理員重設密鑰）。';
+            return;
+          }
+          if (meta.checkinQrInvalidInSeconds == null) {
+            el.textContent = '已啟用自動輪替：伺服端記錄輪替節奏後，將顯示距離連結失效的秒數。';
+            return;
+          }
+          var left = typeof window.__boardQrInvalidAt === 'number'
+            ? Math.max(0, Math.ceil((window.__boardQrInvalidAt - Date.now()) / 1000))
+            : Math.max(0, Math.floor(Number(meta.checkinQrInvalidInSeconds) || 0));
+          el.textContent = '約 ' + left + ' 秒後，此 QR Code 內含簽到連結將失效（請改掃更新後的圖）。';
+        }, 1000);
       }
 
       function scheduleBoardPoll(){
@@ -213,6 +512,7 @@
         try {
           const raw = await api('publicListBoardEvents');
           const events = (raw && raw.events) ? raw.events : [];
+          window.__boardEventsList = events;
           sel.innerHTML = '<option value=\"\">請選擇活動</option>' + events.map(function(e){
             const label = (e.name || e.eventId) + (e.isOpen ? '' : '（未開放簽到）');
             return '<option value=\"' + esc(e.eventId) + '\">' + esc(label) + '</option>';
@@ -230,12 +530,18 @@
           }
           syncBoardUrl();
           BOOT.eventId = boardEventId;
+          lastBoardFp = '';
           var pinnedAfter = typeof getPinnedExecBase === 'function' ? getPinnedExecBase() : '';
           if (pinnedAfter && typeof applyExecBaseToNav === 'function') applyExecBaseToNav(pinnedAfter, BOOT);
-          paintBoardQr();
+          latestCheckinUrl = '';
+          boardAuthBlocked = false;
+          paintBoardQrDock('');
+          syncBoardQrExpiryFromState_(null);
+          if (boardEventId) $('#eventBadge').textContent = boardEventDisplayLabel();
         } catch (e) {
+          window.__boardEventsList = [];
           sel.innerHTML = '<option value=\"\">載入失敗</option>';
-          setToast(e && e.message ? e.message : String(e));
+          setToast(formatApiError(e), { error: true });
         }
       }
 
@@ -245,8 +551,46 @@
         var pinned = typeof getPinnedExecBase === 'function' ? getPinnedExecBase() : '';
         if (pinned && typeof applyExecBaseToNav === 'function') applyExecBaseToNav(pinned, BOOT);
         syncBoardUrl();
-        paintBoardQr();
+        lastBoardFp = '';
+        latestCheckinUrl = '';
+        boardAuthBlocked = false;
+        paintBoardQrDock('');
+        syncBoardQrExpiryFromState_(null);
+        $('#eventBadge').textContent = boardEventDisplayLabel();
+        showBoardFetchError('');
+        hidePairModal();
         await tick();
+      });
+
+      $('#boardPairSubmit').addEventListener('click', async function(){
+        var inp = $('#boardPairInput');
+        var errEl = $('#boardPairModalErr');
+        var raw = inp ? String(inp.value || '').replace(/\D/g, '') : '';
+        if (raw.length !== 6) {
+          if (errEl) {
+            errEl.textContent = '請輸入 6 位數字。';
+            errEl.style.display = 'block';
+          }
+          return;
+        }
+        try {
+          var res = await api('publicExchangeBoardPairCode', boardEventId, raw);
+          var tok = (res && res.boardSessionToken) ? String(res.boardSessionToken).trim() : '';
+          if (!tok) throw new Error('未取得工作階段，請重試。');
+          setBoardSessionToken(tok);
+          boardAuthBlocked = false;
+          if (errEl) { errEl.style.display = 'none'; errEl.textContent = ''; }
+          hidePairModal();
+          setToast('已授權，正在載入看板…', { error: false });
+          await tick();
+        } catch (ex) {
+          var m = formatApiError(ex);
+          if (errEl) {
+            errEl.textContent = m;
+            errEl.style.display = 'block';
+          }
+          setToast(m, { error: true });
+        }
       });
 
       document.addEventListener('visibilitychange', function(){
@@ -258,7 +602,8 @@
 
       (async function(){
         await refreshNavExecBaseFromServerAsync(BOOT);
-        paintBoardQr();
+        paintBoardQrDock('');
+        ensureBoardQrDockCountdownTimer_();
         await loadBoardEvents();
         await tick();
         scheduleBoardPoll();

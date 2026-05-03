@@ -49,20 +49,26 @@
     return '';
   }
 
+  function appendCheckinTokenQuery_(q, boot){
+    const tok = (boot && boot.checkinToken) ? String(boot.checkinToken).trim() : '';
+    if (!tok) return q;
+    return q + (q.indexOf('?') === -1 ? '?' : '&') + 'checkinToken=' + encodeURIComponent(tok);
+  }
+
   function buildAppLinks(boot){
     const base = resolveWebAppBase(boot) || '';
-    const ev = boot.eventId ? ('&eventId=' + encodeURIComponent(boot.eventId)) : '';
+    const ev = boot && boot.eventId ? ('&eventId=' + encodeURIComponent(boot.eventId)) : '';
     if (base) {
       return {
         admin: base + '?page=admin',
-        checkin: base + '?page=checkin' + (boot.eventId ? ev : ''),
-        board: base + '?page=board' + (boot.eventId ? ev : ''),
+        checkin: appendCheckinTokenQuery_(base + '?page=checkin' + (boot && boot.eventId ? ev : ''), boot),
+        board: appendCheckinTokenQuery_(base + '?page=board' + (boot && boot.eventId ? ev : ''), boot),
       };
     }
     return {
       admin: '?page=admin',
-      checkin: '?page=checkin' + ev,
-      board: '?page=board' + ev,
+      checkin: appendCheckinTokenQuery_('?page=checkin' + (boot && boot.eventId ? ev : ''), boot),
+      board: appendCheckinTokenQuery_('?page=board' + (boot && boot.eventId ? ev : ''), boot),
     };
   }
 
@@ -74,11 +80,11 @@
     const b = String(base || '').trim().split(/[?#]/)[0].replace(/\/$/, '');
     if (!b) return;
     window.__GAS_EXEC_BASE = b;
-    const ev = boot.eventId ? ('&eventId=' + encodeURIComponent(boot.eventId)) : '';
+    const ev = boot && boot.eventId ? ('&eventId=' + encodeURIComponent(boot.eventId)) : '';
     const map = {
       admin: b + '?page=admin',
-      checkin: b + '?page=checkin' + (boot.eventId ? ev : ''),
-      board: b + '?page=board' + (boot.eventId ? ev : ''),
+      checkin: appendCheckinTokenQuery_(b + '?page=checkin' + (boot && boot.eventId ? ev : ''), boot),
+      board: appendCheckinTokenQuery_(b + '?page=board' + (boot && boot.eventId ? ev : ''), boot),
     };
     $all('.nav a[data-nav]').forEach(function(a){
       const k = a.getAttribute('data-nav');
@@ -135,6 +141,38 @@
     try { return JSON.stringify(err); } catch (_e) { return String(err); }
   }
 
+  /**
+   * 複製文字到剪貼簿（優先 Clipboard API，否則 textarea + execCommand）。
+   * @returns {Promise<{ok:boolean, message?:string}>}
+   */
+  function copyTextToClipboard(text){
+    const t = String(text || '').trim();
+    if (!t) return Promise.resolve({ ok: false, message: '沒有可複製的內容。' });
+    if (navigator.clipboard && typeof navigator.clipboard.writeText === 'function') {
+      return navigator.clipboard.writeText(t)
+        .then(function(){ return { ok: true }; })
+        .catch(function(err){ return { ok: false, message: formatApiError(err) }; });
+    }
+    return new Promise(function(resolve){
+      try {
+        const ta = document.createElement('textarea');
+        ta.value = t;
+        ta.setAttribute('readonly', '');
+        ta.style.position = 'fixed';
+        ta.style.left = '-9999px';
+        ta.style.top = '0';
+        document.body.appendChild(ta);
+        ta.focus();
+        ta.select();
+        const ok = document.execCommand('copy');
+        document.body.removeChild(ta);
+        resolve(ok ? { ok: true } : { ok: false, message: '無法複製（瀏覽器不支援）。' });
+      } catch (err) {
+        resolve({ ok: false, message: formatApiError(err) });
+      }
+    });
+  }
+
   function fmtTs(ts){
     if (!ts) return '';
     const d = new Date(ts);
@@ -143,11 +181,16 @@
   }
 
   /** 與管理頁 setLinks 相同規則的簽到網址（需已 resolve exec base 時才含完整網域）。 */
-  function buildCheckinUrl(boot, eventId){
+  /**
+   * @param {string} [checkinToken] 若未傳，會嘗試使用 boot.checkinToken（與網址列 ?checkinToken= 一致）。
+   */
+  function buildCheckinUrl(boot, eventId, checkinToken){
     const id = String(eventId || '').trim();
     if (!id) return '';
     const base = resolveWebAppBase(boot || {});
-    const path = '?page=checkin&eventId=' + encodeURIComponent(id);
+    const tok = checkinToken != null ? String(checkinToken).trim() : ((boot && boot.checkinToken) ? String(boot.checkinToken).trim() : '');
+    let path = '?page=checkin&eventId=' + encodeURIComponent(id);
+    if (tok) path += '&checkinToken=' + encodeURIComponent(tok);
     return base ? (base + path) : path;
   }
 

@@ -75,6 +75,21 @@ function getConfig_(key, fallback) {
   return fallback;
 }
 
+function deleteConfig_(key) {
+  const k = String(key || '');
+  if (!k) return false;
+  const ss = getDb_();
+  const sh = ss.getSheetByName(SHEETS.CONFIG);
+  const values = sh.getDataRange().getValues();
+  for (let i = values.length - 1; i >= 1; i--) {
+    if (String(values[i][0]) === k) {
+      sh.deleteRow(i + 1);
+      return true;
+    }
+  }
+  return false;
+}
+
 function newId_(prefix) {
   return prefix + '_' + Utilities.getUuid().replace(/-/g, '').slice(0, 12);
 }

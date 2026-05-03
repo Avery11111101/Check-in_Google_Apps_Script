@@ -8,7 +8,8 @@ function adminListGroups(eventId) {
     const r = rows[i];
     if (String(r[1]) !== String(eventId)) continue;
     if (!r[0]) continue;
-    out.push({ groupId: String(r[0]), category: String(r[2] || ''), groupName: String(r[3] || ''), sort: Number(r[4] || 0) });
+    const norm = normalizeGroupCategoryAndName_(String(r[2] || ''), String(r[3] || ''));
+    out.push({ groupId: String(r[0]), category: norm.category, groupName: norm.groupName, sort: Number(r[4] || 0) });
   }
   return out.sort((a, b) => a.category.localeCompare(b.category, 'zh-Hant') || (a.sort - b.sort) || a.groupName.localeCompare(b.groupName, 'zh-Hant'));
 }
@@ -16,17 +17,16 @@ function adminListGroups(eventId) {
 function adminCreateGroup(payload) {
   requireAdmin_();
   const eventId = String(payload.eventId || '').trim();
-  const category = String(payload.category || '').trim();
-  const groupName = String(payload.groupName || '').trim();
+  const rawCat = String(payload.category || '').trim();
+  const rawName = String(payload.groupName || '').trim();
   const sort = Number(payload.sort || 0);
   if (!eventId) throw new Error('缺少 eventId。');
-  if (!category) throw new Error('分類不可為空。');
-  if (!groupName) throw new Error('分組名稱不可為空。');
 
+  const norm = normalizeGroupCategoryAndName_(rawCat, rawName);
   const ss = getDb_();
   const sh = ss.getSheetByName(SHEETS.GROUPS);
   const groupId = newId_('grp');
-  sh.appendRow([groupId, eventId, category, groupName, sort]);
+  sh.appendRow([groupId, eventId, norm.category, norm.groupName, sort]);
   return { ok: true, groupId };
 }
 
@@ -92,6 +92,47 @@ function adminCreateRoster(payload) {
   return { ok: true, personId };
 }
 
+/** 一次大量寫入名單列數上限（避免超時）。 */
+var ADMIN_ROSTER_BULK_MAX_ = 500;
+
+/**
+ * 一次新增多名成員至同一活動、同一分組（groupId 可空＝未綁定分組）。
+ * @param {{eventId:string, groupId?:string, displayNames?:string[]}} payload
+ */
+function adminCreateRosterBulk(payload) {
+  requireAdmin_();
+  const eventId = String(payload.eventId || '').trim();
+  const groupId = String(payload.groupId != null ? payload.groupId : '').trim();
+  if (!eventId) throw new Error('缺少 eventId。');
+
+  const raw = payload && payload.displayNames;
+  const names = [];
+  if (Array.isArray(raw)) {
+    for (let i = 0; i < raw.length; i++) {
+      const n = String(raw[i] || '').trim();
+      if (n) names.push(n);
+    }
+  }
+  if (!names.length) throw new Error('沒有有效的姓名。');
+  if (names.length > ADMIN_ROSTER_BULK_MAX_) {
+    throw new Error('一次最多新增 ' + ADMIN_ROSTER_BULK_MAX_ + ' 筆，請分批操作。');
+  }
+
+  const ss = getDb_();
+  const sh = ss.getSheetByName(SHEETS.ROSTER);
+  const lastRow = sh.getLastRow();
+  const startRow = lastRow < 1 ? 2 : lastRow + 1;
+  const rows = [];
+  const personIds = [];
+  for (let j = 0; j < names.length; j++) {
+    const personId = newId_('p');
+    personIds.push(personId);
+    rows.push([personId, eventId, groupId, names[j], '', true, j]);
+  }
+  sh.getRange(startRow, 1, rows.length, 7).setValues(rows);
+  return { ok: true, count: names.length, personIds: personIds };
+}
+
 function adminUpdateRoster(payload) {
   requireAdmin_();
   const personId = String(payload.personId || '').trim();
@@ -128,5 +169,26 @@ function adminDeleteRoster(payload) {
     }
   }
   throw new Error('找不到人員。');
+}
+
+/** 產生 6 位看板配對碼（現場看板輸入後可取得即時 QR，無須在網址帶 checkinToken）。 */
+function adminCreateBoardPairCode(eventId) {
+  requireAdmin_();
+  const id = String(eventId || '').trim();
+  if (!id) throw new Error('缺少 eventId。');
+  return createBoardPairCodeForEvent_(id);
+}
+
+/** 看板「名單變更全螢幕轉場」全域預設（單台瀏覽器可於看板頁覆寫）。 */
+function adminGetBoardTransitionDefault() {
+  requireAdmin_();
+  return { ok: true, enabled: getBoardTransitionDefault_() };
+}
+
+function adminSetBoardTransitionDefault(payload) {
+  requireAdmin_();
+  const en = !!(payload && payload.enabled);
+  PropertiesService.getScriptProperties().setProperty('BOARD_TRANSITION_DEFAULT', en ? 'true' : 'false');
+  return { ok: true, enabled: en };
 }
 

@@ -53,3 +53,16 @@ function createEventSettingsSpreadsheet_(parentFolder, title, eventId, eventName
 
   return ss.getUrl();
 }
+
+/** 若主試算表不在指定資料夾內，則移入（與活動子資料夾同層之系統根資料夾）。 */
+function ensureSpreadsheetInDriveFolder_(spreadsheetId, driveFolderId) {
+  const sid = String(spreadsheetId || '').trim();
+  const fid = String(driveFolderId || '').trim();
+  if (!sid || !fid) return;
+  const file = DriveApp.getFileById(sid);
+  const parents = file.getParents();
+  while (parents.hasNext()) {
+    if (parents.next().getId() === fid) return;
+  }
+  file.moveTo(DriveApp.getFolderById(fid));
+}

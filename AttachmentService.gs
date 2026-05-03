@@ -1,3 +1,23 @@
+var ATTACH_UPLOAD_MAX_BYTES_ = 4 * 1024 * 1024;
+var ATTACH_ALLOWED_MIME_ = {
+  'image/jpeg': true,
+  'image/png': true,
+  'image/gif': true,
+  'image/webp': true,
+};
+
+function assertAttachmentUploadAllowed_(mimeType, base64String) {
+  const mime = String(mimeType || '').trim().toLowerCase();
+  if (!ATTACH_ALLOWED_MIME_[mime]) {
+    throw new Error('不支援的檔案類型（僅允許 JPEG、PNG、GIF、WebP）。實際：' + (mime || '（空）'));
+  }
+  const b64 = String(base64String || '').trim();
+  const approxBytes = Math.floor((b64.length * 3) / 4);
+  if (approxBytes > ATTACH_UPLOAD_MAX_BYTES_) {
+    throw new Error('檔案過大：解碼後約 ' + approxBytes + ' bytes，上限為 ' + ATTACH_UPLOAD_MAX_BYTES_ + ' bytes（約 4 MB）。請壓縮圖片後再試。');
+  }
+}
+
 function adminUploadDailyAttachment(payload) {
   requireAdmin_();
   const lock = LockService.getScriptLock();
@@ -13,9 +33,19 @@ function adminUploadDailyAttachment(payload) {
     if (!date) throw new Error('缺少 date。');
     if (!base64) throw new Error('缺少檔案內容。');
 
+    assertAttachmentUploadAllowed_(mimeType, base64);
+
     const { driveFolderId } = getEventDriveFolder_(eventId);
     const folder = DriveApp.getFolderById(driveFolderId);
-    const bytes = Utilities.base64Decode(base64);
+    let bytes;
+    try {
+      bytes = Utilities.base64Decode(base64);
+    } catch (e) {
+      throw new Error('檔案內容無法解碼（base64 格式錯誤）。');
+    }
+    if (bytes.length > ATTACH_UPLOAD_MAX_BYTES_) {
+      throw new Error('檔案過大：解碼後為 ' + bytes.length + ' bytes，上限為 ' + ATTACH_UPLOAD_MAX_BYTES_ + ' bytes（約 4 MB）。');
+    }
     const blob = Utilities.newBlob(bytes, mimeType, fileName);
     const file = folder.createFile(blob);
     const driveFileId = file.getId();
@@ -46,7 +76,7 @@ function adminListDailyAttachments(eventId) {
       driveFileId: String(r[3] || ''),
       driveUrl: String(r[4] || ''),
       memo: String(r[5] || ''),
-      createdAt: r[6] || '',
+      createdAt: cellToPlain_(r[6]),
     });
   }
   return out.sort((a, b) => (a.date || '').localeCompare(b.date || '') || String(b.createdAt).localeCompare(String(a.createdAt)));
