@@ -151,6 +151,11 @@
         var raw = inp ? String(inp.value || '').replace(/\D/g, '') : '';
         return raw.slice(0, 6);
       }
+      /** 未設定驗證碼之活動不向伺服端傳送欄位內容，避免任意六位數被當成「通過」。 */
+      function getCheckinTokenForApi(){
+        if (!getSelectedEventRequiresCheckinCode()) return '';
+        return getEffectiveCheckinCode();
+      }
       function persistCheckinCode(){
         var ev = $('#eventSelect').value.trim();
         var c = getEffectiveCheckinCode();
@@ -187,19 +192,34 @@
         if (!id) return false;
         var list = window.__checkinEventsList || [];
         var h = list.find(function(e){ return e.eventId === id; });
-        return !!(h && h.requiresCheckinCode === true);
+        if (!h) return false;
+        var v = h.requiresCheckinCode;
+        if (v === true || v === 1) return true;
+        if (typeof v === 'string') {
+          var s = v.trim().toLowerCase();
+          return s === 'true' || s === '1';
+        }
+        return false;
       }
       function updateCheckinCodeHintUi(){
+        var wrap = $('#checkinCodeWrap');
         var hint = $('#checkinCodeHint');
+        var need = getSelectedEventRequiresCheckinCode();
+        if (wrap) wrap.style.display = need ? '' : 'none';
+        if (!need) {
+          var inpClear = $('#checkinCode');
+          if (inpClear) inpClear.value = '';
+        }
         if (!hint) return;
-        if (getSelectedEventRequiresCheckinCode()) {
+        if (need) {
           hint.textContent = '此活動已設定驗證碼：請輸入 6 位數字後再載入名單與滑動簽到。';
         } else {
-          hint.textContent = '此活動未設定驗證碼，可留空。';
+          hint.textContent = '此活動未設定驗證碼，不需填寫本欄位。';
         }
       }
       function isLikelyCheckinCodeAuthError_(msg){
         var s = String(msg || '');
+        if (s.indexOf('未於後台設定') !== -1) return false;
         return s.indexOf('驗證碼') !== -1 || s.indexOf('checkinToken') !== -1 || s.indexOf('密鑰') !== -1 || s.indexOf('存取密鑰') !== -1;
       }
       document.getElementById('topNav').appendChild(renderTopbarNav(BOOT));
@@ -352,8 +372,15 @@
           $('#personSelect').innerHTML = '<option value=\"\">請先選擇活動</option>';
           return;
         }
+        const needCode = getSelectedEventRequiresCheckinCode();
+        const codeLen = getEffectiveCheckinCode().length;
+        if (needCode && codeLen !== 6) {
+          ROSTER_FULL = [];
+          $('#personSelect').innerHTML = '<option value=\"\">請先輸入 6 位驗證碼以載入名單</option>';
+          return;
+        }
         try {
-          const roster = await api('publicListRoster', eventId, getEffectiveCheckinCode());
+          const roster = await api('publicListRoster', eventId, getCheckinTokenForApi());
           ROSTER_FULL = Array.isArray(roster) ? roster : [];
           applyPersonFilter(($('#personSearch').value || '').trim());
         } catch (e) {
@@ -417,7 +444,7 @@
         const personId = $('#personSelect').value;
         if (!eventId || !personId){ $('#statusBox').textContent = '請先選擇活動與姓名。'; return; }
         try {
-          const s = await api('publicGetPersonStatus', eventId, personId, getEffectiveCheckinCode());
+          const s = await api('publicGetPersonStatus', eventId, personId, getCheckinTokenForApi());
           if (!s || typeof s !== 'object') {
             $('#statusBox').textContent = '無法讀取狀態，請重新整理頁面。';
             return;
@@ -454,7 +481,7 @@
         setCheckinSubmittingUi(true);
         setToast('送出中…', { clearMs: null });
         try{
-          const res = await api('publicSubmitAttendance', { eventId, personId, action, font: '', token: getEffectiveCheckinCode(), clientMeta: { ua:navigator.userAgent } });
+          const res = await api('publicSubmitAttendance', { eventId, personId, action, font: '', token: getCheckinTokenForApi(), clientMeta: { ua:navigator.userAgent } });
           var st = (res && res.serverTime != null && String(res.serverTime) !== '') ? String(res.serverTime) : '';
           $('#serverTime').textContent = st ? ('伺服器時間 ' + fmtTs(st)) : '';
           setToast(action === 'IN' ? '簽到完成' : '簽退完成', { clearMs: 3800 });
@@ -580,6 +607,11 @@
           if (checkinCodeEl.value !== v) checkinCodeEl.value = v;
           persistCheckinCode();
           syncCheckinInteractiveDisabled();
+          var evSel = $('#eventSelect').value.trim();
+          if (evSel && getSelectedEventRequiresCheckinCode()) {
+            void refreshRoster();
+            void refreshStatus();
+          }
         });
       }
       $('#personSearch').addEventListener('input', function(){

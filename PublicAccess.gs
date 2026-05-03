@@ -68,6 +68,13 @@ function tokenAuthMismatchError_() {
   return new Error('缺少或錯誤的現場簽到驗證碼。請向管理員確認目前 6 位數驗證碼，或於看板頁先完成看板授權。');
 }
 
+/** 活動未設定驗證碼卻帶入 token 時（避免任意六位數看似「通過驗證」）。 */
+function tokenAuthSpuriousWhenNoCodeError_() {
+  return new Error(
+    '此活動未於後台設定「現場簽到驗證碼」，請勿填寫驗證碼欄位。若需要驗證碼，請洽管理員於管理頁產生或啟用。'
+  );
+}
+
 /** 現場簽到驗證碼：6 位數字（100000–999999）。 */
 function generateCheckinCode_() {
   return String(Math.floor(100000 + Math.random() * 900000));
@@ -128,8 +135,11 @@ function ensureCheckinTokenRotated_(eventId) {
 
 function assertCheckinTokenMatches_(eventId, gotRaw) {
   const expected = getEventCheckinToken_(eventId);
-  if (!expected) return;
   const got = String(gotRaw || '').trim();
+  if (!expected) {
+    if (got) throw tokenAuthSpuriousWhenNoCodeError_();
+    return;
+  }
   if (got === expected) return;
   const prev = getEventCheckinTokenPrev_(eventId);
   if (prev && got === prev) return;

@@ -13,16 +13,18 @@
 - 已建立預設 Sheet schema（初始化時自動建立工作表與標題列）
 - Web App 預設 `**USER_DEPLOYING` + `ANYONE_ANONYMOUS`**：簽到／看板訪客**不必登入 Google**；管理頁以指令碼屬性 `**ADMIN_EMAILS`**（逗號分隔多筆）驗證目前登入之 Google 帳號（以「我」執行時通常僅擁有者帳號可穩定通過）
 - 已完成：簽到/簽退 API、狀態快取、即時看板 API（前端輪詢）
-- **v0.2.1**：看板於已設簽到密鑰時可改以**管理頁 6 位驗證碼**換取工作階段（網址不必帶 `checkinToken`）；`publicGetBoardState` 回傳 `checkinUrl` 供角落 QR 隨密鑰即時更新；名單變更時全螢幕短轉場；看板輪詢固定 **5 秒**
-- **v0.2.2**：管理頁可設定 `**checkinToken` 自動變更週期**（不自動／預設間隔／自訂 ≥30 秒），伺服端於公開 API 呼叫時懶惰輪替並短暫接受上一組密鑰；**看板轉場動畫**可於管理頁設**全域預設**，看板頁再以瀏覽器本地覆寫
+- **v0.2.1**：看板於已設簽到密鑰時可改以**管理頁 6 位驗證碼**換取工作階段（網址不必帶 `checkinToken`）；`publicGetBoardState` 回傳 `checkinUrl` 供角落 QR 隨密鑰即時更新；名單變更時之提示行為見下「看板變更提示」；看板輪詢固定 **5 秒**
+- **v0.2.2**：管理頁可設定 `**checkinToken` 自動變更週期**（不自動／預設間隔／自訂 ≥30 秒），伺服端於公開 API 呼叫時懶惰輪替並短暫接受上一組密鑰；**看板名單變更提示**可於管理頁設**全域預設**，看板頁再以瀏覽器本地覆寫
 - **v0.2.3**：簽到頁 API 優先使用網址列密鑰；自動輪替時伺服端另保留**多組**近期密鑰（`EVENT_CHECKIN_TOKEN_LEGACY_*`）供驗證；看板／簽到公開 API 之密鑰比對一併支援歷史組
 - **v0.2.4**：`doGet` 開啟簽到頁時，若網址 token 仍有效則 **bootstrap 改注入目前密鑰**（`resolveCheckinTokenForBootstrap_`）；簽到頁呼叫 API 時**優先使用 BOOT**，避免稍舊 QR 或 HtmlService iframe 內網址列不完整導致誤用舊參數
 - **v0.2.5**：`doGet` 以 `e.queryString`／`e.parameters` 補讀 `eventId`／`checkinToken`（避免少數載入路徑下 `e.parameter` 未帶齊）；簽到頁另以 `**document.referrer`** 還原外層 `…/exec?...` 查詢字串，與 `BOOT` 一併決定鎖定活動與 API 用密鑰，修正「掃描／開連結仍缺 checkinToken」之假陽性
 - **v0.2.6**：簽到頁改以官方 `**google.script.url.getLocation`** 讀取外層網址列參數（HtmlService IFRAME 內 `referrer` 常同為 `googleusercontent…` 而**不含** `checkinToken`）；活動／名單載入延至該回呼後再執行
 - **v0.2.7**：`EVENT_CHECKIN_TOKEN_`* 改存**6 位數字「現場簽到驗證碼」**（可沿用自動輪替週期）；簽到／看板 QR **不再**於網址附 `checkinToken`；管理頁與看板 QR 下方即時顯示目前驗證碼；簽到頁手動輸入驗證碼後呼叫 `publicListRoster`／`publicGetPersonStatus`／`publicSubmitAttendance`；`**publicGetBoardState` 僅接受看板工作階段**（`publicExchangeBoardPairCode` 一次性授權碼），不得以簽到驗證碼讀看板；`publicListBoardEvents` 各活動新增 `requiresCheckinCode`
+- **v0.2.8**：簽到頁在活動**已要求驗證碼**且尚未輸滿 6 位時，**不再呼叫** `publicListRoster`（避免誤判為名單載入失敗）；輸入驗證碼過程中會自動重試載入名單與狀態
+- **v0.2.9**：後端 `assertCheckinTokenMatches_`：活動**未**設定驗證碼時，若仍帶入非空 `token` 則拒絕（避免任意六位數看似通過）；簽到頁僅在 `requiresCheckinCode` 為真時才把驗證碼送 API，並隱藏／清空不需驗證之活動的輸入欄
 - 已完成：管理頁分組/名單 CRUD、每日附件圖片上傳/刪除
 - **維護**：已自看板頁 `[Board.html](Board.html)` 移除開發用除錯 ingest 埋點。
-
+- **看板變更提示**：名單指紋變更且已開啟「變更提示」時，[`Board.html`](Board.html) 先更新名單再於畫面**中央卡片**比對上一輪狀態，顯示「姓名：狀態」（沿用 `statusLabel`）；多人時至多兩行後附「等共 N 人狀態變更」；僅時間戳等非狀態差異則「名單已更新」。可點半透明背景、**Esc** 或約 4 秒後關閉；**無**全螢幕滑動轉場。
 ## 開發與部署（clasp）
 
 1. 安裝並登入 clasp
@@ -56,7 +58,7 @@ clasp push
 ## 安全與部署備註
 
 - Web App 在 `[appsscript.json](appsscript.json)` 預設為 `**executeAs: USER_DEPLOYING`**（以擁有者身分執行）與 `**access: ANYONE_ANONYMOUS**`（**未登入 Google 者**亦可開啟簽到／看板並呼叫公開 API）。若不需匿名、或僅限機構成員，請在部署設定中調整存取權，並搭配下方「現場簽到驗證碼」縮小 API 暴露面。
-- **現場簽到驗證碼（v0.2.7）**：管理員可為活動產生 **6 位數字**（仍寫入 `Attendance_Config` 鍵 `EVENT_CHECKIN_TOKEN_{eventId}`，與舊版鍵名相容）。可選用 **自動變更週期**（`EVENT_CHECKIN_TOKEN_ROTATE_SECONDS_{eventId}` 等），輪替時暫存上一組於 `EVENT_CHECKIN_TOKEN_PREV_*`，並將近期曾使用之值列入 `EVENT_CHECKIN_TOKEN_LEGACY_*`（JSON 陣列、筆數有上限）。設定後，`publicListRoster`、`publicSubmitAttendance`、`publicGetPersonStatus` 之 `token` 參數須帶正確 6 位碼（或仍接受之上一組／歷史組）。`**publicGetBoardState`** 僅接受 `**publicExchangeBoardPairCode**` 換得之**看板工作階段**（`bs_…`）；不得以簽到驗證碼讀取名單。未設定驗證碼時行為與舊版相同。
+- **現場簽到驗證碼（v0.2.7）**：管理員可為活動產生 **6 位數字**（仍寫入 `Attendance_Config` 鍵 `EVENT_CHECKIN_TOKEN_{eventId}`，與舊版鍵名相容）。可選用 **自動變更週期**（`EVENT_CHECKIN_TOKEN_ROTATE_SECONDS_{eventId}` 等），輪替時暫存上一組於 `EVENT_CHECKIN_TOKEN_PREV_*`，並將近期曾使用之值列入 `EVENT_CHECKIN_TOKEN_LEGACY_*`（JSON 陣列、筆數有上限）。設定後，`publicListRoster`、`publicSubmitAttendance`、`publicGetPersonStatus` 之 `token` 參數須帶正確 6 位碼（或仍接受之上一組／歷史組）。`**publicGetBoardState`** 僅接受 `**publicExchangeBoardPairCode**` 換得之**看板工作階段**（`bs_…`）；不得以簽到驗證碼讀取名單。**未設定驗證碼時（v0.2.9）**：`token` 須為空字串；帶任意非空值將遭拒，以免任意六位數看似通過驗證。
 - **簽到頁（v0.2.7）**：`doGet` **不再**向 bootstrap 注入密鑰／驗證碼；簽到頁以輸入欄＋`sessionStorage` 保存各活動之碼，並以 `google.script.url.getLocation` 補讀外層 `eventId` 以鎖定活動。
 - **簽到活動清單**：簽到頁與看板相同呼叫 `publicListBoardEvents()` 列出**全部活動**（含尚未開放簽到者），方便先選場；未開放時介面會顯示狀態並鎖定簽到／滑動送出，與 `publicSubmitAttendance` 伺服端檢查一致。
 
@@ -121,8 +123,8 @@ clasp push
 - **安全（v0.2.1／v0.2.7）**：`[AdminService.gs](AdminService.gs)` 之 `adminCreateBoardPairCode`；`[PublicAccess.gs](PublicAccess.gs)` 之 `createBoardPairCodeForEvent_`／`publicExchangeBoardPairCode`／看板工作階段快取；**v0.2.7** 起 `publicGetBoardState` 僅以 `**assertPublicEventTokenOrBoardSession_`** 接受**看板工作階段**，不得以簽到驗證碼通過。
 - **效能（v0.2.0）**：`publicGetBoardState` 使用 `CacheService` 文件快取（`BOARD_STATE_CACHE_TTL_SECONDS`，預設 2 秒；`0` 關閉）；簽到成功寫入後會使該活動快取失效。
 - **附件（v0.2.0）**：`adminUploadDailyAttachment` 限制 MIME（JPEG／PNG／GIF／WebP）與解碼後約 4 MB，錯誤以明確訊息回傳；附件清單之 `createdAt` 改為字串。
-- **UX**：管理頁簽到連結／Drive 資料夾／設定試算表欄位旁新增**複製**按鈕（`[app.js.html](app.js.html)` 共用 `copyTextToClipboard`）；簽到頁名單與狀態 API 錯誤改為 `formatApiError`、Toast 支援錯誤樣式與成功訊息自動清除、送出中鎖定簽到／簽退與滑塊並標示 `aria-busy`，滑塊可 **Enter／空白鍵**送出；看板頂部顯示**活動名稱**、輪詢時顯示「更新中…」、失敗時於 Toast 與橫幅顯示統一錯誤文案。
+- **UX**：管理頁簽到連結／Drive 資料夾／設定試算表欄位旁新增**複製**按鈕（`[app.js.html](app.js.html)` 共用 `copyTextToClipboard`）；簽到頁名單與狀態 API 錯誤改為 `formatApiError`、Toast 支援錯誤樣式與成功訊息自動清除、送出中鎖定簽到／簽退與滑塊並標示 `aria-busy`，滑塊可 **Enter／空白鍵**送出；看板頂部顯示**活動名稱**、輪詢時顯示「更新中…」、失敗時於 Toast 與橫幅顯示統一錯誤文案；看板名單變更時以**中央提示**顯示變更摘要（見「目前進度」看板變更提示）。
 - **名單／分組**：管理頁支援**大量新增**名單（多行文字、與單筆新增共用分組下拉），後端 `adminCreateRosterBulk` 以批次寫入試算表，**單次上限 500 筆**；`sort` 由 0 遞增以便同批排序。**修正**：`getRange` 須依 Apps Script 語意傳入**列數／欄數**（第三、四參數），不可誤用「結束列」；先前在 `startRow>1` 時會出現「資料列數與範圍列數不符」。新增分組時**分類、分組名稱可擇一填寫或皆留空**，寫入前會正規化為「未分類」「未分組」（`[Utils.gs](Utils.gs)` `normalizeGroupCategoryAndName_`）；看板與 `adminListGroups` 對空白舊資料亦以相同規則顯示，介面上為「未分類｜未分組」。
 - **v0.2.2（驗證碼輪替）**：`[PublicAccess.gs](PublicAccess.gs)` 之 `ensureCheckinTokenRotated_`（`LockService`）、`getEventCheckinRotateSeconds_`；`[RosterService.gs](RosterService.gs)` 之 `adminSetEventCheckinTokenRotate`、`adminGetEventSecurity` 擴充（`rotateSeconds`、`rotatedAt`、`prevExists`）；輪替後 `**buildPublicCheckinUrl_`** 於回傳前觸發輪替（**v0.2.7** 起網址不再附帶 token，僅 `eventId`）。管理頁 QR／複製連結與看板角落皆隨輪詢或倒數歸零更新。
-- **v0.2.2（看板轉場）**：指令碼屬性 `**BOARD_TRANSITION_DEFAULT`**（預設開）透過 `adminGetBoardTransitionDefault`／`adminSetBoardTransitionDefault` 維護；看板 bootstrap 帶 `boardTransitionDefault`，頁面 `**localStorage.boardTransitionEnabled**`（`'1'`/`'0'`）可覆寫單機偏好。
+- **v0.2.2（看板變更提示）**：指令碼屬性 `**BOARD_TRANSITION_DEFAULT`**（預設開）透過 `adminGetBoardTransitionDefault`／`adminSetBoardTransitionDefault` 維護；看板 bootstrap 帶 `boardTransitionDefault`，頁面 `**localStorage.boardTransitionEnabled**`（`'1'`/`'0'`）可覆寫單機偏好（控制是否顯示中央變更提示，鍵名沿用歷史相容）。
 

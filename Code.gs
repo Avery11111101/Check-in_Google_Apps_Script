@@ -1,5 +1,5 @@
 const APP = {
-  VERSION: '0.2.7',
+  VERSION: '0.2.9',
   PAGES: {
     CHECKIN: 'checkin',
     ADMIN: 'admin',

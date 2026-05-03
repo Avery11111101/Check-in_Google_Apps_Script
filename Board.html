@@ -17,7 +17,7 @@
           <div id="topNav"></div>
           <label class="badge boardAnimToggle" style="display:inline-flex;align-items:center;gap:6px;cursor:pointer;user-select:none;font:inherit">
             <input type="checkbox" id="chkBoardTransition" checked>
-            <span>名單動畫</span>
+            <span>變更提示</span>
           </label>
           <div class="badge mono" id="eventBadge"></div>
           <div class="badge mono" id="pollBadge"></div>
@@ -76,8 +76,12 @@
       </div>
     </div>
 
-    <div id="boardTransitionLayer" class="boardTransitionLayer" aria-hidden="true">
-      <div class="boardTransitionLayer__panel"></div>
+    <div id="boardChangeNoticeLayer" class="boardChangeNotice" aria-hidden="true">
+      <button type="button" class="boardChangeNotice__backdrop" aria-label="關閉提示"></button>
+      <div class="boardChangeNotice__card" role="dialog" aria-modal="true" aria-labelledby="boardChangeNoticeHeading">
+        <div id="boardChangeNoticeHeading" class="boardChangeNotice__heading">名單更新</div>
+        <div class="boardChangeNotice__body" role="status" aria-live="polite"></div>
+      </div>
     </div>
 
     <?!= include('app.js'); ?>
@@ -121,6 +125,8 @@
       let pollTimer = null;
       let tickBusy = false;
       let lastBoardFp = '';
+      /** 上一輪成功 render 之人員快照（personId → 狀態與顯示名），供轉場 diff；與 lastBoardFp 同步清空。 */
+      let lastBoardPeopleSnap = null;
       let latestCheckinUrl = '';
       let boardAuthBlocked = false;
 
@@ -167,6 +173,55 @@
         }
       }
 
+      function boardStatusDisplayLabel_(status, statusLabel){
+        var t = String(statusLabel || '').trim();
+        if (t) return t;
+        var s = String(status || '').trim().toUpperCase();
+        if (s === 'IN') return '已簽到';
+        if (s === 'OUT') return '已簽退';
+        return '未簽到';
+      }
+
+      function snapshotBoardPeople_(state){
+        var out = {};
+        if (!state || !state.groups) return out;
+        (state.groups || []).forEach(function(g){
+          (g.people || []).forEach(function(p){
+            var id = String(p.personId || '').trim();
+            if (!id) return;
+            out[id] = {
+              status: String(p.status || 'NOT_YET'),
+              displayName: String(p.displayName || '').trim(),
+              statusLabel: String(p.statusLabel || '').trim(),
+            };
+          });
+        });
+        return out;
+      }
+
+      function buildBoardTransitionLines(prevSnap, state){
+        if (!prevSnap || typeof prevSnap !== 'object') return ['名單已更新'];
+        var changes = [];
+        (state.groups || []).forEach(function(g){
+          (g.people || []).forEach(function(p){
+            var id = String(p.personId || '').trim();
+            if (!id) return;
+            var prev = prevSnap[id];
+            if (!prev) return;
+            var st = String(p.status || 'NOT_YET');
+            if (prev.status !== st) {
+              var name = String(p.displayName || '').trim() || '（未命名）';
+              var lbl = boardStatusDisplayLabel_(st, p.statusLabel);
+              changes.push(name + '：' + lbl);
+            }
+          });
+        });
+        if (!changes.length) return ['名單已更新'];
+        if (changes.length === 1) return [changes[0]];
+        if (changes.length === 2) return [changes[0], changes[1]];
+        return [changes[0], changes[1], '等共 ' + changes.length + ' 人狀態變更'];
+      }
+
       function showPairModal(){
         var m = $('#boardPairModal');
         if (!m) return;
@@ -182,37 +237,83 @@
         if (m) m.classList.remove('boardPairModal--open');
       }
 
-      function playBoardTransition(){
+      var __boardChangeNoticeTimer = null;
+      var __boardChangeNoticeKeyHandler = null;
+      var __boardNoticeResolve = null;
+
+      function closeBoardChangeNotice_(){
+        if (__boardChangeNoticeTimer) {
+          clearTimeout(__boardChangeNoticeTimer);
+          __boardChangeNoticeTimer = null;
+        }
+        if (__boardChangeNoticeKeyHandler) {
+          document.removeEventListener('keydown', __boardChangeNoticeKeyHandler);
+          __boardChangeNoticeKeyHandler = null;
+        }
+        var layer = $('#boardChangeNoticeLayer');
+        if (layer) {
+          var backdrop = layer.querySelector('.boardChangeNotice__backdrop');
+          if (backdrop) backdrop.onclick = null;
+          layer.classList.remove('boardChangeNotice--open');
+          layer.style.display = 'none';
+          layer.setAttribute('aria-hidden', 'true');
+          var bodyEl = layer.querySelector('.boardChangeNotice__body');
+          if (bodyEl) bodyEl.innerHTML = '';
+        }
+        if (__boardNoticeResolve) {
+          var r = __boardNoticeResolve;
+          __boardNoticeResolve = null;
+          r();
+        }
+      }
+
+      /** 名單指紋變更時於畫面中央顯示摘要（無全螢幕滑動）；可點背景、Esc 或逾時關閉。不重疊：新提示會先關閉上一則。 */
+      function playBoardTransition(lines){
         return new Promise(function(resolve){
           if (!getBoardTransitionEnabled()) {
             resolve();
             return;
           }
-          var layer = $('#boardTransitionLayer');
+          closeBoardChangeNotice_();
+          __boardNoticeResolve = resolve;
+
+          var layer = $('#boardChangeNoticeLayer');
           if (!layer) {
-            resolve();
+            closeBoardChangeNotice_();
             return;
           }
-          var panel = layer.querySelector('.boardTransitionLayer__panel');
-          layer.style.display = 'block';
-          layer.classList.remove('boardTransitionLayer--out');
-          layer.classList.remove('boardTransitionLayer--in');
-          void layer.offsetWidth;
-          layer.classList.add('boardTransitionLayer--in');
-          window.setTimeout(function(){
-            window.setTimeout(function(){
-              layer.classList.remove('boardTransitionLayer--in');
-              layer.classList.add('boardTransitionLayer--out');
-              var fin = function(){
-                layer.classList.remove('boardTransitionLayer--out');
-                layer.style.display = 'none';
-                if (panel) panel.removeEventListener('transitionend', fin);
-                resolve();
-              };
-              if (panel) panel.addEventListener('transitionend', fin, { once: true });
-              window.setTimeout(fin, 520);
-            }, 720);
-          }, 420);
+          var bodyEl = layer.querySelector('.boardChangeNotice__body');
+          var backdrop = layer.querySelector('.boardChangeNotice__backdrop');
+          var safeLines = (Array.isArray(lines) && lines.length)
+            ? lines.map(function(x){ return String(x || '').trim(); }).filter(Boolean)
+            : [];
+          if (!safeLines.length) safeLines = ['名單已更新'];
+          if (bodyEl) {
+            bodyEl.innerHTML = safeLines.map(function(line){
+              return '<div class="boardChangeNotice__line">' + esc(line) + '</div>';
+            }).join('');
+          }
+
+          function teardown(){
+            closeBoardChangeNotice_();
+          }
+
+          layer.style.display = 'flex';
+          layer.setAttribute('aria-hidden', 'false');
+          layer.classList.add('boardChangeNotice--open');
+
+          if (backdrop) {
+            backdrop.onclick = function(ev){
+              ev.preventDefault();
+              teardown();
+            };
+          }
+          __boardChangeNoticeKeyHandler = function(ev){
+            if (ev.key === 'Escape') teardown();
+          };
+          document.addEventListener('keydown', __boardChangeNoticeKeyHandler);
+
+          __boardChangeNoticeTimer = setTimeout(teardown, 4200);
         });
       }
 
@@ -396,11 +497,14 @@
           boardAuthBlocked = false;
           hidePairModal();
           var nextFp = boardStateFingerprint(state);
+          var transLines = null;
           if (lastBoardFp && lastBoardFp !== nextFp) {
-            await playBoardTransition();
+            transLines = buildBoardTransitionLines(lastBoardPeopleSnap, state);
           }
           lastBoardFp = nextFp;
           render(state);
+          lastBoardPeopleSnap = snapshotBoardPeople_(state);
+          if (transLines) playBoardTransition(transLines);
           syncBoardQrExpiryFromState_(state);
           var cu = (state.checkinUrl != null) ? String(state.checkinUrl).trim() : '';
           if (cu) {
@@ -536,6 +640,7 @@
           syncBoardUrl();
           BOOT.eventId = boardEventId;
           lastBoardFp = '';
+          lastBoardPeopleSnap = null;
           var pinnedAfter = typeof getPinnedExecBase === 'function' ? getPinnedExecBase() : '';
           if (pinnedAfter && typeof applyExecBaseToNav === 'function') applyExecBaseToNav(pinnedAfter, BOOT);
           latestCheckinUrl = '';
@@ -558,6 +663,7 @@
         if (pinned && typeof applyExecBaseToNav === 'function') applyExecBaseToNav(pinned, BOOT);
         syncBoardUrl();
         lastBoardFp = '';
+        lastBoardPeopleSnap = null;
         latestCheckinUrl = '';
         boardAuthBlocked = false;
         paintBoardQrDock('');

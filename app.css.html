@@ -248,28 +248,63 @@
     max-height: min(28vw, 132px);
   }
 
-  /* 看板：資料更新全螢幕轉場（由右入、向左出） */
-  .boardTransitionLayer{
+  /* 看板：名單變更時中央提示（無全螢幕滑動轉場） */
+  .boardChangeNotice{
     display: none;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
     position: fixed;
     inset: 0;
-    z-index: 9998;
+    z-index: 10001;
+    padding: max(16px, env(safe-area-inset-top)) max(16px, env(safe-area-inset-right)) max(16px, env(safe-area-inset-bottom)) max(16px, env(safe-area-inset-left));
     pointer-events: none;
-    overflow: hidden;
+    overflow: auto;
   }
-  .boardTransitionLayer__panel{
+  .boardChangeNotice.boardChangeNotice--open{
+    pointer-events: auto;
+  }
+  .boardChangeNotice__backdrop{
     position: absolute;
     inset: 0;
-    background: linear-gradient(100deg, rgba(10,12,18,.15) 0%, rgba(16,19,29,.9) 42%, rgba(16,19,29,.94) 100%);
-    transform: translateX(100%);
-    transition: transform 0.42s ease-out;
+    margin: 0;
+    padding: 0;
+    border: 0;
+    cursor: pointer;
+    background: rgba(6,8,12,.52);
   }
-  .boardTransitionLayer--in .boardTransitionLayer__panel{
-    transform: translateX(0);
+  .boardChangeNotice__card{
+    position: relative;
+    z-index: 1;
+    width: 100%;
+    max-width: min(92vw, 440px);
+    padding: 20px 22px 18px;
+    background: #1a1f2e;
+    border: 1px solid rgba(255,255,255,.12);
+    border-radius: 14px;
+    box-shadow: 0 16px 48px rgba(0,0,0,.4);
+    text-align: left;
   }
-  .boardTransitionLayer--out .boardTransitionLayer__panel{
-    transform: translateX(-100%);
-    transition: transform 0.4s ease-in;
+  .boardChangeNotice__heading{
+    font-size: 13px;
+    font-weight: 600;
+    color: rgba(255,255,255,.52);
+    margin: 0 0 10px;
+  }
+  .boardChangeNotice__body{
+    margin: 0;
+  }
+  .boardChangeNotice__line{
+    font-size: 1.15rem;
+    font-weight: 700;
+    line-height: 1.38;
+    color: rgba(255,255,255,.95);
+  }
+  .boardChangeNotice__line + .boardChangeNotice__line{
+    margin-top: 0.45em;
+    font-size: 1.02rem;
+    font-weight: 600;
+    color: rgba(255,255,255,.86);
   }
 
   /* 看板：6 位驗證碼授權 */
