@@ -1,7 +1,19 @@
 <!DOCTYPE html>
 <html>
   <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
     <base target="_top">
+    <script>
+      (function(){
+        try {
+          var v = String(localStorage.getItem('theme') || '').toLowerCase();
+          var t = (v === 'light' || v === 'dark') ? v
+            : (window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light');
+          document.documentElement.setAttribute('data-theme', t);
+        } catch (_e) {}
+      })();
+    </script>
     <?!= include('app.css'); ?>
     <?!= include('qrlib.js'); ?>
   </head>
@@ -15,6 +27,7 @@
         </div>
         <div class="topActions">
           <div id="topNav"></div>
+          <div id="themeToggleHost"></div>
           <label class="badge boardAnimToggle" style="display:inline-flex;align-items:center;gap:6px;cursor:pointer;user-select:none;font:inherit">
             <input type="checkbox" id="chkBoardTransition" checked>
             <span>變更提示</span>
@@ -77,7 +90,7 @@
     </div>
 
     <div id="boardChangeNoticeLayer" class="boardChangeNotice" aria-hidden="true">
-      <button type="button" class="boardChangeNotice__backdrop" aria-label="關閉提示"></button>
+      <button type="button" tabindex="-1" class="boardChangeNotice__backdrop" aria-label="關閉提示"></button>
       <div class="boardChangeNotice__card" role="dialog" aria-modal="true" aria-labelledby="boardChangeNoticeHeading">
         <div id="boardChangeNoticeHeading" class="boardChangeNotice__heading">名單更新</div>
         <div class="boardChangeNotice__body" role="status" aria-live="polite"></div>
@@ -110,6 +123,7 @@
       }
 
       document.getElementById('topNav').appendChild(renderTopbarNav(BOOT));
+      document.getElementById('themeToggleHost').appendChild(renderThemeToggle());
       syncBoardTransitionCheckbox();
       var chkBoardTransitionEl = $('#chkBoardTransition');
       if (chkBoardTransitionEl) {
@@ -125,6 +139,10 @@
       let pollTimer = null;
       let tickBusy = false;
       let lastBoardFp = '';
+      let lastBoardStructKey = '';
+      let lastStatsKey = '';
+      let lastUpdatedStr = '';
+      let pollFastNext = false;
       /** 上一輪成功 render 之人員快照（personId → 狀態與顯示名），供轉場 diff；與 lastBoardFp 同步清空。 */
       let lastBoardPeopleSnap = null;
       let latestCheckinUrl = '';
@@ -240,6 +258,7 @@
       var __boardChangeNoticeTimer = null;
       var __boardChangeNoticeKeyHandler = null;
       var __boardNoticeResolve = null;
+      var __boardNoticePrevFocus = null;
 
       function closeBoardChangeNotice_(){
         if (__boardChangeNoticeTimer) {
@@ -260,6 +279,12 @@
           var bodyEl = layer.querySelector('.boardChangeNotice__body');
           if (bodyEl) bodyEl.innerHTML = '';
         }
+        if (__boardNoticePrevFocus && typeof __boardNoticePrevFocus.focus === 'function') {
+          try { __boardNoticePrevFocus.focus({ preventScroll: true }); } catch (_e) {
+            try { __boardNoticePrevFocus.focus(); } catch (_e2) {}
+          }
+        }
+        __boardNoticePrevFocus = null;
         if (__boardNoticeResolve) {
           var r = __boardNoticeResolve;
           __boardNoticeResolve = null;
@@ -275,6 +300,10 @@
             return;
           }
           closeBoardChangeNotice_();
+          try {
+            var ae = document.activeElement;
+            if (ae && ae !== document.body) __boardNoticePrevFocus = ae;
+          } catch (_e) {}
           __boardNoticeResolve = resolve;
 
           var layer = $('#boardChangeNoticeLayer');
@@ -334,11 +363,23 @@
         renderQrInHost(host, u, BOARD_QR_DOCK_PX);
       }
 
+      var __boardToastTimer = null;
       function setToast(msg, opts){
         const el = $('#toast');
         if (!el) return;
+        if (__boardToastTimer) { clearTimeout(__boardToastTimer); __boardToastTimer = null; }
         el.textContent = msg || '';
-        el.classList.toggle('toast--error', !!(opts && opts.error));
+        var err = !!(opts && opts.error);
+        el.classList.toggle('toast--error', err);
+        if (!msg) return;
+        var ms = (opts && Object.prototype.hasOwnProperty.call(opts, 'clearMs')) ? opts.clearMs : (err ? 6000 : 3800);
+        if (ms && ms > 0) {
+          __boardToastTimer = setTimeout(function(){
+            el.textContent = '';
+            el.classList.remove('toast--error');
+            __boardToastTimer = null;
+          }, ms);
+        }
       }
 
       function showBoardFetchError(msg){
@@ -389,19 +430,95 @@
         showBoardFetchError('');
       }
 
-      function render(state){
+      function statusTagClass_(status){
+        if (status === 'IN') return 'ok';
+        if (status === 'OUT') return 'bad';
+        return 'not';
+      }
+
+      function buildStructKey_(state){
+        if (!state || !state.groups) return '';
+        return (state.groups || []).map(function(g){
+          var gid = g.groupId || (String(g.category || '') + '\t' + String(g.groupName || ''));
+          var ids = (g.people || []).map(function(p){ return p.personId; }).join(',');
+          return gid + ':' + ids;
+        }).join('|');
+      }
+
+      function buildPersonHtml_(p){
+        var tagClass = statusTagClass_(p.status);
+        return (
+          '<div class="person" data-person-id="' + esc(p.personId) + '">' +
+            '<div>' +
+              '<div class="name">' + esc(p.displayName) + '</div>' +
+              '<div class="meta">' + esc(p.category) + ' / ' + esc(p.groupName) + '　<span class="mono" data-role="last-time">' + esc(p.lastTime ? fmtTs(p.lastTime) : '') + '</span></div>' +
+            '</div>' +
+            '<div class="statusTag ' + tagClass + '" data-role="status">' + esc(p.statusLabel) + '</div>' +
+          '</div>'
+        );
+      }
+
+      function renderFullBoard_(groups){
+        $('#board').innerHTML = groups.map(function(g){
+          var peopleHtml = (g.people || []).map(buildPersonHtml_).join('');
+          return (
+            '<div class="groupTitle">' + esc(g.category) + '｜' + esc(g.groupName) + '</div>' +
+            '<div class="boardCols">' + peopleHtml + '</div>'
+          );
+        }).join('');
+      }
+
+      function patchBoardInPlace_(groups){
+        var boardEl = $('#board');
+        if (!boardEl) return false;
+        var changed = 0;
+        for (var i = 0; i < groups.length; i++) {
+          var people = groups[i].people || [];
+          for (var j = 0; j < people.length; j++) {
+            var p = people[j];
+            var node = boardEl.querySelector('.person[data-person-id="' + (window.CSS && CSS.escape ? CSS.escape(p.personId) : String(p.personId).replace(/"/g, '\\"')) + '"]');
+            if (!node) return false;
+            var tagEl = node.querySelector('[data-role="status"]');
+            var lastEl = node.querySelector('[data-role="last-time"]');
+            if (tagEl) {
+              var nextCls = 'statusTag ' + statusTagClass_(p.status);
+              if (tagEl.className !== nextCls) { tagEl.className = nextCls; changed++; }
+              var nextLabel = String(p.statusLabel || '');
+              if (tagEl.textContent !== nextLabel) { tagEl.textContent = nextLabel; changed++; }
+            }
+            if (lastEl) {
+              var nextTime = p.lastTime ? fmtTs(p.lastTime) : '';
+              if (lastEl.textContent !== nextTime) { lastEl.textContent = nextTime; changed++; }
+            }
+            if (changed && (tagEl || lastEl)) {
+              node.classList.add('is-just-updated');
+              (function(n){ setTimeout(function(){ n.classList.remove('is-just-updated'); }, 1500); })(node);
+            }
+          }
+        }
+        return true;
+      }
+
+      function render(state, fp){
         if (!state || typeof state !== 'object') {
           $('#updatedAt').textContent = '';
           $('#board').innerHTML = '<div class="hint" style="margin-top:10px">無法載入看板資料（請重新整理或稍後再試）。</div>';
           showBoardFetchError('');
+          lastBoardStructKey = '';
+          lastStatsKey = '';
           return;
         }
         showBoardFetchError('');
         var ts = (state.now != null && String(state.now) !== '') ? fmtTs(state.now) : '—';
-        $('#updatedAt').textContent = '更新 ' + ts;
+        var updatedStr = '更新 ' + ts;
+        if (updatedStr !== lastUpdatedStr) {
+          $('#updatedAt').textContent = updatedStr;
+          lastUpdatedStr = updatedStr;
+        }
         const groups = state.groups || [];
         if (!groups.length){
           $('#board').innerHTML = '<div class="hint" style="margin-top:10px">目前沒有名單。請到管理頁匯入名單與分組。</div>';
+          lastBoardStructKey = '';
           return;
         }
 
@@ -414,32 +531,24 @@
           });
         });
         const total = signed + notYet + signedOut;
-        $('#effectiveTotal').textContent = String(total);
-        $('#signedCount').textContent = String(signed);
-        $('#notYetCount').textContent = String(notYet);
-        var soc1 = $('#signedOutCount');
-        if (soc1) soc1.textContent = String(signedOut);
         const rate = total > 0 ? ((signed / total) * 100).toFixed(1) : '0.0';
-        $('#attendanceRate').textContent = rate + '%';
+        var statsKey = total + '|' + signed + '|' + notYet + '|' + signedOut + '|' + rate;
+        if (statsKey !== lastStatsKey) {
+          $('#effectiveTotal').textContent = String(total);
+          $('#signedCount').textContent = String(signed);
+          $('#notYetCount').textContent = String(notYet);
+          var soc1 = $('#signedOutCount');
+          if (soc1) soc1.textContent = String(signedOut);
+          $('#attendanceRate').textContent = rate + '%';
+          lastStatsKey = statsKey;
+        }
 
-        $('#board').innerHTML = groups.map(function(g){
-          const peopleHtml = (g.people || []).map(function(p){
-            const tagClass = p.status === 'IN' ? 'ok' : p.status === 'OUT' ? 'bad' : 'not';
-            return (
-              '<div class="person">' +
-                '<div>' +
-                  '<div class="name">' + esc(p.displayName) + '</div>' +
-                  '<div class="meta">' + esc(p.category) + ' / ' + esc(p.groupName) + '　<span class="mono">' + esc(p.lastTime ? fmtTs(p.lastTime) : '') + '</span></div>' +
-                '</div>' +
-                '<div class="statusTag ' + tagClass + '">' + esc(p.statusLabel) + '</div>' +
-              '</div>'
-            );
-          }).join('');
-          return (
-            '<div class="groupTitle">' + esc(g.category) + '｜' + esc(g.groupName) + '</div>' +
-            '<div class="boardCols">' + peopleHtml + '</div>'
-          );
-        }).join('');
+        var nextStructKey = buildStructKey_(state);
+        if (nextStructKey === lastBoardStructKey && lastBoardStructKey) {
+          if (patchBoardInPlace_(groups)) return;
+        }
+        renderFullBoard_(groups);
+        lastBoardStructKey = nextStructKey;
       }
 
       function syncBoardQrExpiryFromState_(state){
@@ -498,11 +607,15 @@
           hidePairModal();
           var nextFp = boardStateFingerprint(state);
           var transLines = null;
-          if (lastBoardFp && lastBoardFp !== nextFp) {
+          var fpChanged = lastBoardFp && lastBoardFp !== nextFp;
+          if (fpChanged) {
             transLines = buildBoardTransitionLines(lastBoardPeopleSnap, state);
+            pollFastNext = true;
           }
-          lastBoardFp = nextFp;
-          render(state);
+          if (nextFp !== lastBoardFp) {
+            lastBoardFp = nextFp;
+            render(state, nextFp);
+          }
           lastBoardPeopleSnap = snapshotBoardPeople_(state);
           if (transLines) playBoardTransition(transLines);
           syncBoardQrExpiryFromState_(state);
@@ -543,6 +656,7 @@
       function pollDelayMs(){
         var base = BOARD_POLL_SECONDS * 1000;
         if (typeof document !== 'undefined' && document.visibilityState === 'hidden') return base * 3;
+        if (pollFastNext) { pollFastNext = false; return 2000; }
         return base;
       }
 
@@ -640,6 +754,9 @@
           syncBoardUrl();
           BOOT.eventId = boardEventId;
           lastBoardFp = '';
+          lastBoardStructKey = '';
+          lastStatsKey = '';
+          lastUpdatedStr = '';
           lastBoardPeopleSnap = null;
           var pinnedAfter = typeof getPinnedExecBase === 'function' ? getPinnedExecBase() : '';
           if (pinnedAfter && typeof applyExecBaseToNav === 'function') applyExecBaseToNav(pinnedAfter, BOOT);
@@ -663,6 +780,9 @@
         if (pinned && typeof applyExecBaseToNav === 'function') applyExecBaseToNav(pinned, BOOT);
         syncBoardUrl();
         lastBoardFp = '';
+        lastBoardStructKey = '';
+        lastStatsKey = '';
+        lastUpdatedStr = '';
         lastBoardPeopleSnap = null;
         latestCheckinUrl = '';
         boardAuthBlocked = false;
@@ -675,6 +795,16 @@
         await tick();
       });
 
+      var boardPairInputEl = $('#boardPairInput');
+      if (boardPairInputEl) {
+        boardPairInputEl.addEventListener('keydown', function(ev){
+          if (ev.key === 'Enter') {
+            ev.preventDefault();
+            var sb = $('#boardPairSubmit');
+            if (sb) sb.click();
+          }
+        });
+      }
       $('#boardPairSubmit').addEventListener('click', async function(){
         var inp = $('#boardPairInput');
         var errEl = $('#boardPairModalErr');

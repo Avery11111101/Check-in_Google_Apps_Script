@@ -3,7 +3,90 @@
   function $all(sel){ return Array.from(document.querySelectorAll(sel)); }
   function esc(s){ return String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
 
-  /** 伺服端非同步寫入後，導覽與管理頁連結優先使用此值（與目前部署一致）。 */
+  /** debounce：尾端觸發。 */
+  function debounce(fn, wait){
+    var t = null;
+    return function(){
+      var ctx = this, args = arguments;
+      if (t) clearTimeout(t);
+      t = setTimeout(function(){ t = null; fn.apply(ctx, args); }, wait);
+    };
+  }
+
+  /** 主題：light / dark，存 localStorage['theme']；空值＝跟隨系統。 */
+  var THEME_LS_KEY = 'theme';
+  function getStoredTheme(){
+    try {
+      var v = String(localStorage.getItem(THEME_LS_KEY) || '').trim().toLowerCase();
+      return (v === 'light' || v === 'dark') ? v : '';
+    } catch (_e) { return ''; }
+  }
+  function systemPrefersDark(){
+    try { return window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches; }
+    catch (_e) { return false; }
+  }
+  function applyTheme(theme){
+    var t = (theme === 'light' || theme === 'dark') ? theme : (systemPrefersDark() ? 'dark' : 'light');
+    try { document.documentElement.setAttribute('data-theme', t); } catch (_e) {}
+  }
+  function initTheme(){
+    applyTheme(getStoredTheme());
+    try {
+      var mq = window.matchMedia('(prefers-color-scheme: dark)');
+      if (mq && typeof mq.addEventListener === 'function') {
+        mq.addEventListener('change', function(){
+          if (!getStoredTheme()) applyTheme('');
+        });
+      }
+    } catch (_e) {}
+  }
+  function toggleTheme(){
+    var stored = getStoredTheme();
+    var current = stored || (systemPrefersDark() ? 'dark' : 'light');
+    var next = current === 'dark' ? 'light' : 'dark';
+    try { localStorage.setItem(THEME_LS_KEY, next); } catch (_e) {}
+    applyTheme(next);
+  }
+  function renderThemeToggle(){
+    var btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'themeToggle';
+    btn.setAttribute('aria-label', '切換淺色／深色主題');
+    btn.title = '切換淺／深主題';
+    btn.innerHTML =
+      '<svg class="icon-sun" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' +
+        '<circle cx="12" cy="12" r="4"/>' +
+        '<path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M4.93 19.07l1.41-1.41M17.66 6.34l1.41-1.41"/>' +
+      '</svg>' +
+      '<svg class="icon-moon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' +
+        '<path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/>' +
+      '</svg>';
+    btn.addEventListener('click', toggleTheme);
+    return btn;
+  }
+
+  /** 將按鈕標為「忙碌」（disabled + 顯示替代文字），完成後自動復原。 */
+  function withButtonBusy(btn, asyncFn, opts){
+    if (!btn) return Promise.resolve(asyncFn && asyncFn());
+    var prevText = btn.textContent;
+    var prevDisabled = btn.disabled;
+    var busyText = (opts && opts.busyText) ? String(opts.busyText) : '處理中…';
+    btn.disabled = true;
+    btn.textContent = busyText;
+    return Promise.resolve()
+      .then(function(){ return asyncFn(); })
+      .then(function(r){
+        btn.disabled = prevDisabled;
+        btn.textContent = prevText;
+        return r;
+      })
+      .catch(function(err){
+        btn.disabled = prevDisabled;
+        btn.textContent = prevText;
+        throw err;
+      });
+  }
+
   function getPinnedExecBase(){
     const p = (typeof window !== 'undefined' && window.__GAS_EXEC_BASE) ? String(window.__GAS_EXEC_BASE).trim() : '';
     return p ? p.split(/[?#]/)[0].replace(/\/$/, '') : '';
@@ -17,24 +100,16 @@
     return u.origin + p.replace(/\/$/, '');
   }
 
-  /** 網址列為 script.google.com/.../exec 時（極少數非 iframe 情境）。 */
   function inferExecBaseFromLocation(){
-    try {
-      return execBaseFromScriptGoogleUrl(new URL(window.location.href));
-    } catch (_e) {
-      return '';
-    }
+    try { return execBaseFromScriptGoogleUrl(new URL(window.location.href)); }
+    catch (_e) { return ''; }
   }
 
-  /** iframe 內為 googleusercontent… 時，外層 Web App 常在 document.referrer（應優先於 location）。 */
   function inferExecBaseFromReferrer(){
     const r = document.referrer || '';
     if (!r) return '';
-    try {
-      return execBaseFromScriptGoogleUrl(new URL(r));
-    } catch (_e) {
-      return '';
-    }
+    try { return execBaseFromScriptGoogleUrl(new URL(r)); }
+    catch (_e) { return ''; }
   }
 
   function resolveWebAppBase(boot){
@@ -89,7 +164,6 @@
     });
   }
 
-  /** iframe 內 referrer 常為空，改由伺服端 getUrl／WEB_APP_URL 補上正確 …/exec 再改導覽 href。 */
   function refreshNavExecBaseFromServer(boot, onApplied){
     google.script.run
       .withSuccessHandler(function(url){
@@ -126,7 +200,6 @@
     });
   }
 
-  /** google.script.run 失敗回呼常帶 message；統一成可讀字串供 Toast／錯誤區顯示。 */
   function formatApiError(err){
     if (err == null) return '發生未知錯誤。';
     if (typeof err === 'string') return err;
@@ -135,10 +208,6 @@
     try { return JSON.stringify(err); } catch (_e) { return String(err); }
   }
 
-  /**
-   * 複製文字到剪貼簿（優先 Clipboard API，否則 textarea + execCommand）。
-   * @returns {Promise<{ok:boolean, message?:string}>}
-   */
   function copyTextToClipboard(text){
     const t = String(text || '').trim();
     if (!t) return Promise.resolve({ ok: false, message: '沒有可複製的內容。' });
@@ -174,7 +243,6 @@
     return d.toLocaleString('zh-TW', { hour12:false });
   }
 
-  /** 與管理頁 setLinks 相同規則的簽到網址（不含驗證碼；需已 resolve exec base 時才含完整網域）。 */
   function buildCheckinUrl(boot, eventId, _unusedToken){
     const id = String(eventId || '').trim();
     if (!id) return '';
@@ -183,12 +251,6 @@
     return base ? (base + path) : path;
   }
 
-  /**
-   * 在 QR 下方顯示目前 6 位現場簽到驗證碼與複製按鈕；無效或空則隱藏 hostEl。
-   * @param {HTMLElement|null} hostEl
-   * @param {string} code
-   * @param {(r:{ok:boolean,message?:string})=>void} [onCopy]
-   */
   function renderCurrentCheckinCode(hostEl, code, onCopy){
     if (!hostEl) return;
     var c = String(code || '').replace(/\D/g, '').trim();
@@ -225,12 +287,6 @@
     hostEl.appendChild(row);
   }
 
-  /**
-   * 在 host 元素內繪製 QR（使用專案內嵌的 qrcodejs）。
-   * @param {HTMLElement} hostEl 空容器（例如 div.qrBox）
-   * @param {string} text 要編碼的文字／網址
-   * @param {number} sizePx 寬高像素
-   */
   function renderQrInHost(hostEl, text, sizePx){
     if (!hostEl) return;
     while (hostEl.firstChild) hostEl.removeChild(hostEl.firstChild);
@@ -254,4 +310,7 @@
       hostEl.textContent = '無法產生 QR。';
     }
   }
+
+  /** 在 head 解析完成前儘早套主題，避免閃白。 */
+  initTheme();
 </script>

@@ -5,6 +5,16 @@
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
     <meta name="theme-color" content="#0f1115">
     <base target="_top">
+    <script>
+      (function(){
+        try {
+          var v = String(localStorage.getItem('theme') || '').toLowerCase();
+          var t = (v === 'light' || v === 'dark') ? v
+            : (window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light');
+          document.documentElement.setAttribute('data-theme', t);
+        } catch (_e) {}
+      })();
+    </script>
     <?!= include('app.css'); ?>
   </head>
   <body class="page-checkin">
@@ -17,6 +27,7 @@
         </div>
         <div class="topActions">
           <div id="topNav"></div>
+          <div id="themeToggleHost"></div>
           <div class="badge mono">v<?= esc(bootstrap.version) ?></div>
         </div>
       </div>
@@ -223,11 +234,14 @@
         return s.indexOf('驗證碼') !== -1 || s.indexOf('checkinToken') !== -1 || s.indexOf('密鑰') !== -1 || s.indexOf('存取密鑰') !== -1;
       }
       document.getElementById('topNav').appendChild(renderTopbarNav(BOOT));
+      document.getElementById('themeToggleHost').appendChild(renderThemeToggle());
       refreshNavExecBaseFromServer(BOOT);
       let action = null; // IN | OUT
       let busy = false;
       let ROSTER_FULL = [];
       let checkinToastTimer = null;
+      let rosterReqSeq = 0;
+      let statusReqSeq = 0;
 
       function setToast(msg, opts){
         const el = $('#toast');
@@ -243,7 +257,7 @@
         if (!msg) return;
         const clearMs = opts && Object.prototype.hasOwnProperty.call(opts, 'clearMs')
           ? opts.clearMs
-          : (err ? null : 3800);
+          : (err ? 6000 : 3800);
         if (clearMs != null && clearMs > 0) {
           checkinToastTimer = setTimeout(function(){
             el.textContent = '';
@@ -367,6 +381,7 @@
 
       async function refreshRoster(){
         const eventId = $('#eventSelect').value.trim();
+        const mySeq = ++rosterReqSeq;
         if (!eventId){
           ROSTER_FULL = [];
           $('#personSelect').innerHTML = '<option value=\"\">請先選擇活動</option>';
@@ -381,9 +396,11 @@
         }
         try {
           const roster = await api('publicListRoster', eventId, getCheckinTokenForApi());
+          if (mySeq !== rosterReqSeq) return;
           ROSTER_FULL = Array.isArray(roster) ? roster : [];
           applyPersonFilter(($('#personSearch').value || '').trim());
         } catch (e) {
+          if (mySeq !== rosterReqSeq) return;
           ROSTER_FULL = [];
           $('#personSelect').innerHTML = '<option value=\"\">名單載入失敗</option>';
           var msg = formatApiError(e);
@@ -429,8 +446,7 @@
           loadPersistedCheckinCodeIntoField();
           updateCheckinCodeHintUi();
           updateCheckinGateStatusUi();
-          await refreshRoster();
-          await refreshStatus();
+          await Promise.all([refreshRoster(), refreshStatus()]);
         } catch (e) {
           sel.innerHTML = '<option value=\"\">載入失敗</option>';
           hint.textContent = '無法載入活動清單：' + formatApiError(e);
@@ -439,23 +455,30 @@
         }
       }
 
+      function renderStatusBox_(status, statusLabel, lastTime){
+        var s = String(status || '').toUpperCase();
+        var dotCls = s === 'IN' ? 'ok' : (s === 'OUT' ? 'bad' : '');
+        var label = String(statusLabel || (s === 'IN' ? '已簽到' : s === 'OUT' ? '已簽退' : '未簽到'));
+        $('#statusBox').innerHTML =
+          '<div class="pill"><span class="dot ' + dotCls + '"></span><span>' + esc(label) + '</span></div>' +
+          '<div style="margin-top:10px" class="hint">最後時間：<span class="mono">' + esc(lastTime ? fmtTs(lastTime) : '—') + '</span></div>';
+      }
+
       async function refreshStatus(){
         const eventId = $('#eventSelect').value.trim();
         const personId = $('#personSelect').value;
+        const mySeq = ++statusReqSeq;
         if (!eventId || !personId){ $('#statusBox').textContent = '請先選擇活動與姓名。'; return; }
         try {
           const s = await api('publicGetPersonStatus', eventId, personId, getCheckinTokenForApi());
+          if (mySeq !== statusReqSeq) return;
           if (!s || typeof s !== 'object') {
             $('#statusBox').textContent = '無法讀取狀態，請重新整理頁面。';
             return;
           }
-          $('#statusBox').innerHTML = `
-            <div class="pill"><span class="dot ${s.status==='IN'?'ok':(s.status==='OUT'?'bad':'')}"></span>
-              <span>${esc(s.statusLabel)}</span>
-            </div>
-            <div style="margin-top:10px" class="hint">最後時間：<span class="mono">${esc(s.lastTime ? fmtTs(s.lastTime) : '—')}</span></div>
-          `;
+          renderStatusBox_(s.status, s.statusLabel, s.lastTime);
         } catch (e) {
+          if (mySeq !== statusReqSeq) return;
           var msg = formatApiError(e);
           if (isLikelyCheckinCodeAuthError_(msg)) {
             clearCheckinCodeStorage(eventId);
@@ -480,12 +503,16 @@
         busy = true;
         setCheckinSubmittingUi(true);
         setToast('送出中…', { clearMs: null });
+        const submittedAction = action;
         try{
           const res = await api('publicSubmitAttendance', { eventId, personId, action, font: '', token: getCheckinTokenForApi(), clientMeta: { ua:navigator.userAgent } });
           var st = (res && res.serverTime != null && String(res.serverTime) !== '') ? String(res.serverTime) : '';
           $('#serverTime').textContent = st ? ('伺服器時間 ' + fmtTs(st)) : '';
-          setToast(action === 'IN' ? '簽到完成' : '簽退完成', { clearMs: 3800 });
-          await refreshStatus();
+          setToast(submittedAction === 'IN' ? '簽到完成' : '簽退完成', { clearMs: 3800 });
+          // 樂觀更新：立即顯示送出結果，避免等待 refreshStatus 的二次來回。
+          renderStatusBox_(submittedAction, submittedAction === 'IN' ? '已簽到' : '已簽退', st);
+          // 背景對齊伺服端，若與本地不同則由非同步結果覆寫。
+          void refreshStatus();
         }catch(e){
           var em = formatApiError(e);
           if (isLikelyCheckinCodeAuthError_(em)) {
@@ -509,67 +536,64 @@
         const thumb = $('#thumb');
         let dragging = false;
         let startX = 0;
-        let startRight = 6;
+        // translateX 採負值；0 為起點（最右），-maxTravel 為最左。
+        let offset = 0;
+        let startOffset = 0;
 
-        function trackReady(){
+        function maxTravel(){
           var w = bar.clientWidth;
           var tw = thumb.clientWidth;
-          return w > 0 && tw > 0 && w >= tw + 12;
+          return Math.max(0, w - tw - 12);
         }
 
-        function setRight(px){
-          var maxRight = 6;
-          if (!trackReady()) {
-            thumb.style.right = maxRight + 'px';
-            return maxRight;
-          }
-          var minRight = bar.clientWidth - thumb.clientWidth - 6;
-          if (minRight >= maxRight) {
-            thumb.style.right = maxRight + 'px';
-            return maxRight;
-          }
-          var r = Math.max(minRight, Math.min(maxRight, px));
-          thumb.style.right = r + 'px';
-          return r;
+        function applyOffset(px){
+          var max = maxTravel();
+          if (max <= 0) { offset = 0; thumb.style.transform = 'translate3d(0,0,0)'; return 0; }
+          var v = Math.min(0, Math.max(-max, px));
+          offset = v;
+          thumb.style.transform = 'translate3d(' + v + 'px,0,0)';
+          return v;
         }
-        function reset(){ thumb.style.right = '6px'; }
+        function reset(){ applyOffset(0); }
 
-        function onSlideBarResize(){
-          if (dragging) return;
-          reset();
-        }
         if (typeof ResizeObserver !== 'undefined' && bar) {
           try {
-            var ro = new ResizeObserver(function(){ onSlideBarResize(); });
+            var ro = new ResizeObserver(function(){ if (!dragging) reset(); });
             ro.observe(bar);
           } catch (_e) {}
         }
-        window.addEventListener('resize', onSlideBarResize);
+        window.addEventListener('resize', function(){ if (!dragging) reset(); });
 
         function onDown(ev){
           if (busy) return;
           dragging = true;
+          thumb.classList.add('is-dragging');
           startX = (ev.touches ? ev.touches[0].clientX : ev.clientX);
-          const right = parseFloat(getComputedStyle(thumb).right) || 6;
-          startRight = right;
+          startOffset = offset;
           ev.preventDefault();
         }
         async function onMove(ev){
           if (!dragging) return;
           const x = (ev.touches ? ev.touches[0].clientX : ev.clientX);
           const dx = x - startX;
-          const right = setRight(startRight - dx);
-          if (trackReady()) {
-            const minRight = bar.clientWidth - thumb.clientWidth - 6;
-            if (right <= minRight + 2){
-              dragging = false;
-              await submit();
-              reset();
-            }
+          const v = applyOffset(startOffset + dx);
+          var max = maxTravel();
+          if (max > 0 && v <= -max + 2){
+            dragging = false;
+            thumb.classList.remove('is-dragging');
+            await submit();
+            // 提交後給 0.25s 視覺停留再回彈。
+            setTimeout(reset, 250);
           }
           ev.preventDefault();
         }
-        function onUp(){ dragging = false; }
+        function onUp(){
+          if (!dragging) return;
+          dragging = false;
+          thumb.classList.remove('is-dragging');
+          // 未滑到底則彈回。
+          reset();
+        }
 
         thumb.addEventListener('keydown', function(ev){
           if (busy) return;
@@ -595,23 +619,25 @@
         updateCheckinGateStatusUi();
         styleCheckinActionButtons();
         try {
-          await refreshRoster();
-          await refreshStatus();
+          await Promise.all([refreshRoster(), refreshStatus()]);
         } catch (_e) {}
         syncCheckinInteractiveDisabled();
       });
       var checkinCodeEl = $('#checkinCode');
       if (checkinCodeEl) {
+        var debouncedReloadAfterCode = debounce(function(){
+          var evSel = $('#eventSelect').value.trim();
+          if (!evSel || !getSelectedEventRequiresCheckinCode()) return;
+          if (getEffectiveCheckinCode().length !== 6) return;
+          void refreshRoster();
+          void refreshStatus();
+        }, 280);
         checkinCodeEl.addEventListener('input', function(){
           var v = String(checkinCodeEl.value || '').replace(/\D/g, '').slice(0, 6);
           if (checkinCodeEl.value !== v) checkinCodeEl.value = v;
           persistCheckinCode();
           syncCheckinInteractiveDisabled();
-          var evSel = $('#eventSelect').value.trim();
-          if (evSel && getSelectedEventRequiresCheckinCode()) {
-            void refreshRoster();
-            void refreshStatus();
-          }
+          debouncedReloadAfterCode();
         });
       }
       $('#personSearch').addEventListener('input', function(){

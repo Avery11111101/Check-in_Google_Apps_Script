@@ -1,7 +1,19 @@
 <!DOCTYPE html>
 <html>
   <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
     <base target="_top">
+    <script>
+      (function(){
+        try {
+          var v = String(localStorage.getItem('theme') || '').toLowerCase();
+          var t = (v === 'light' || v === 'dark') ? v
+            : (window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light');
+          document.documentElement.setAttribute('data-theme', t);
+        } catch (_e) {}
+      })();
+    </script>
     <?!= include('app.css'); ?>
     <?!= include('qrlib.js'); ?>
   </head>
@@ -15,6 +27,7 @@
         </div>
         <div class="topActions">
           <div id="topNav"></div>
+          <div id="themeToggleHost"></div>
           <div class="badge mono"><?= esc(bootstrap.userEmail || 'unknown') ?></div>
           <div class="badge mono">v<?= esc(bootstrap.version) ?></div>
         </div>
@@ -185,6 +198,8 @@
     <script>
       const BOOT = <?= JSON.stringify(bootstrap) ?>;
       document.getElementById('topNav').appendChild(renderTopbarNav(BOOT));
+      document.getElementById('themeToggleHost').appendChild(renderThemeToggle());
+      let adminEventReqSeq = 0;
       refreshNavExecBaseFromServer(BOOT, function(){
         const sel = document.getElementById('eventSelect');
         const id = sel && sel.value ? String(sel.value).trim() : '';
@@ -198,19 +213,27 @@
         el.classList.toggle('toast--error', !!(opts && opts.error));
       }
 
+      var __copyPairs = [];
       function wireCopyButton(btnId, inputId, okMsg){
         const btn = document.getElementById(btnId);
         const inp = document.getElementById(inputId);
         if (!btn || !inp) return;
+        __copyPairs.push({ btn: btn, inp: inp });
         btn.addEventListener('click', async function(){
           const r = await copyTextToClipboard(inp.value);
           if (r.ok) setToast(okMsg);
           else setToast(r.message || '複製失敗', { error: true });
         });
       }
+      function syncCopyButtonsDisabled(){
+        __copyPairs.forEach(function(p){
+          p.btn.disabled = !String(p.inp.value || '').trim();
+        });
+      }
       wireCopyButton('btnCopyQrLink', 'qrLink', '已複製簽到連結');
       wireCopyButton('btnCopyFolderUrl', 'eventFolderUrl', '已複製資料夾連結');
       wireCopyButton('btnCopySettingsUrl', 'eventSettingsUrl', '已複製設定試算表連結');
+      syncCopyButtonsDisabled();
 
       var TOKEN_ROTATE_PRESETS = [30, 60, 300, 600, 1800];
 
@@ -365,15 +388,17 @@
         __adminQrCountdownInterval = setInterval(tick, 1000);
       }
 
-      async function setLinks(eventId){
+      async function setLinks(eventId, reqSeq){
         clearAdminQrRotateCountdown();
         let token = '';
         let sec = null;
         try {
           sec = await api('adminGetEventSecurity', eventId);
+          if (reqSeq != null && reqSeq !== adminEventReqSeq) return;
           token = (sec && sec.checkinToken) ? String(sec.checkinToken).trim() : '';
           window.__adminLastSecurity = sec || {};
         } catch (_e) {
+          if (reqSeq != null && reqSeq !== adminEventReqSeq) return;
           window.__adminLastSecurity = {};
         }
         const bootTok = Object.assign({}, BOOT, { checkinToken: token });
@@ -403,6 +428,7 @@
         applyTokenRotateFormFromSeconds(rs);
         renderTokenRotateStatus(rs);
         startAdminQrCountdownTick(eventId);
+        syncCopyButtonsDisabled();
       }
 
       var __boardPairCountdownTimer = null;
@@ -612,21 +638,24 @@
         });
       }
 
-      async function refreshGroupRoster(){
+      async function refreshGroupRoster(reqSeq){
         const eventId = getSelectedEventId();
         if (!eventId) return;
         const groups = await api('adminListGroups', eventId);
+        if (reqSeq != null && reqSeq !== adminEventReqSeq) return;
         window.__groups = groups;
         renderGroups(groups);
         const roster = await api('adminListRoster', eventId);
+        if (reqSeq != null && reqSeq !== adminEventReqSeq) return;
         window.__roster = roster;
         renderRoster(roster);
       }
 
-      async function refreshAttachments(){
+      async function refreshAttachments(reqSeq){
         const eventId = getSelectedEventId();
         if (!eventId) return;
         const list = await api('adminListDailyAttachments', eventId);
+        if (reqSeq != null && reqSeq !== adminEventReqSeq) return;
         renderAttachments(list);
       }
 
@@ -640,17 +669,18 @@
       });
       $('#btnOpen').addEventListener('click', () => setOpen(true));
       $('#btnClose').addEventListener('click', () => setOpen(false));
-      $('#btnGenCheckinToken').addEventListener('click', async () => {
+      $('#btnGenCheckinToken').addEventListener('click', function(){
         const eventId = getSelectedEventId();
         if (!eventId) return setToast('請先選擇活動。');
         if (!confirm('將產生新驗證碼，舊碼將無法簽到。確定？')) return;
-        try {
-          await api('adminRegenerateEventCheckinToken', { eventId });
-          setToast('已產生新驗證碼，請通知現場改輸入新碼。');
-          await setLinks(eventId);
-        } catch (e) {
-          setToast(formatApiError(e), { error: true });
-        }
+        withButtonBusy($('#btnGenCheckinToken'), function(){
+          return api('adminRegenerateEventCheckinToken', { eventId: eventId })
+            .then(function(){
+              setToast('已產生新驗證碼，請通知現場改輸入新碼。');
+              return setLinks(eventId);
+            });
+        }, { busyText: '產生中…' })
+          .catch(function(e){ setToast(formatApiError(e), { error: true }); });
       });
       $('#btnClearCheckinToken').addEventListener('click', async () => {
         const eventId = getSelectedEventId();
@@ -718,10 +748,13 @@
         }
       });
       $('#eventSelect').addEventListener('change', () => {
+        const mySeq = ++adminEventReqSeq;
         clearBoardPairDisplay();
         const eventId = $('#eventSelect').value;
         if (!eventId) {
           $('#qrLink').value = '';
+          $('#eventFolderUrl').value = '';
+          $('#eventSettingsUrl').value = '';
           renderQrInHost($('#adminQrHost'), '', 180);
           if (typeof renderCurrentCheckinCode === 'function') {
             renderCurrentCheckinCode($('#adminCurrentCodeHost'), '');
@@ -736,16 +769,18 @@
           const pw = $('#boardPairAuthWrap');
           if (pw) pw.style.display = 'none';
           updateAdminEventOpenUi();
+          syncCopyButtonsDisabled();
           return;
         }
-        void setLinks(eventId);
+        void setLinks(eventId, mySeq);
         const events = window.__events || [];
         const hit = events.find(e => e.eventId === eventId);
         $('#eventFolderUrl').value = (hit && hit.driveFolderUrl) ? hit.driveFolderUrl : '';
         $('#eventSettingsUrl').value = '';
+        syncCopyButtonsDisabled();
         updateAdminEventOpenUi();
-        refreshGroupRoster();
-        refreshAttachments();
+        void refreshGroupRoster(mySeq);
+        void refreshAttachments(mySeq);
       });
 
       $('#btnAddGroup').addEventListener('click', async () => {
@@ -771,25 +806,39 @@
         setToast('已新增人員');
       });
 
-      $('#btnBulkAddPerson').addEventListener('click', async () => {
+      $('#btnBulkAddPerson').addEventListener('click', function(){
         const eventId = getSelectedEventId();
         if (!eventId) return setToast('請先選擇活動。');
         const raw = ($('#bulkPersonNames').value || '');
-        const lines = raw.split(/\r?\n/).map(s => String(s).trim()).filter(Boolean);
+        // 去除空白行並去重，避免送出大量重複名稱
+        const seen = Object.create(null);
+        const lines = [];
+        raw.split(/\r?\n/).forEach(function(s){
+          var t = String(s).trim();
+          if (!t || seen[t]) return;
+          seen[t] = 1;
+          lines.push(t);
+        });
         if (!lines.length) return setToast('請輸入至少一行姓名。');
         const groupId = $('#personGroup').value || '';
-        try {
-          const res = await api('adminCreateRosterBulk', { eventId, groupId, displayNames: lines });
-          $('#bulkPersonNames').value = '';
-          await refreshGroupRoster();
-          const n = (res && res.count != null) ? res.count : lines.length;
-          setToast('已大量新增 ' + n + ' 人');
-        } catch (e) {
-          setToast(formatApiError(e), { error: true });
-        }
+        const btn = $('#btnBulkAddPerson');
+        const ta = $('#bulkPersonNames');
+        if (ta) ta.readOnly = true;
+        withButtonBusy(btn, function(){
+          return api('adminCreateRosterBulk', { eventId, groupId, displayNames: lines })
+            .then(function(res){
+              $('#bulkPersonNames').value = '';
+              return refreshGroupRoster().then(function(){
+                const n = (res && res.count != null) ? res.count : lines.length;
+                setToast('已大量新增 ' + n + ' 人');
+              });
+            });
+        }, { busyText: '新增中…' })
+          .catch(function(e){ setToast(formatApiError(e), { error: true }); })
+          .then(function(){ if (ta) ta.readOnly = false; });
       });
 
-      $('#btnUploadAttach').addEventListener('click', async () => {
+      $('#btnUploadAttach').addEventListener('click', function(){
         const eventId = getSelectedEventId();
         if (!eventId) return setToast('請先選擇活動。');
         const date = $('#attachDate').value;
@@ -797,21 +846,24 @@
         const title = $('#attachTitle').value.trim();
         const file = ($('#attachFile').files || [])[0];
         if (!file) return setToast('請選擇圖片檔案。');
-        const base64 = await new Promise((resolve, reject) => {
-          const reader = new FileReader();
-          reader.onload = () => resolve(String(reader.result || '').split(',')[1] || '');
-          reader.onerror = reject;
-          reader.readAsDataURL(file);
-        });
-        await api('adminUploadDailyAttachment', {
-          eventId, date, title,
-          fileName: file.name,
-          mimeType: file.type,
-          base64
-        });
-        $('#attachFile').value = '';
-        await refreshAttachments();
-        setToast('已上傳附件');
+        const btn = $('#btnUploadAttach');
+        withButtonBusy(btn, function(){
+          return new Promise(function(resolve, reject){
+            const reader = new FileReader();
+            reader.onload = function(){ resolve(String(reader.result || '').split(',')[1] || ''); };
+            reader.onerror = reject;
+            reader.readAsDataURL(file);
+          }).then(function(base64){
+            return api('adminUploadDailyAttachment', {
+              eventId: eventId, date: date, title: title,
+              fileName: file.name, mimeType: file.type, base64: base64,
+            });
+          }).then(function(){
+            $('#attachFile').value = '';
+            return refreshAttachments();
+          }).then(function(){ setToast('已上傳附件'); });
+        }, { busyText: '上傳中…' })
+          .catch(function(e){ setToast(formatApiError(e), { error: true }); });
       });
 
       $('#btnRefreshAttach').addEventListener('click', refreshAttachments);
