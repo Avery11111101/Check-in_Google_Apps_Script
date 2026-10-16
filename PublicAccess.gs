@@ -299,7 +299,7 @@ function invalidateBoardStateCache_(eventId) {
   try {
     const id = String(eventId || '').trim();
     if (!id) return;
-    const cache = CacheService.getDocumentCache();
+    const cache = CacheService.getScriptCache();
     cache.remove(boardStateCacheKey_(id));
   } catch (_e) {
     // ignore

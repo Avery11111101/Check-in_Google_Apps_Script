@@ -22,6 +22,13 @@
 - **v0.2.7**：`EVENT_CHECKIN_TOKEN_`* 改存**6 位數字「現場簽到驗證碼」**（可沿用自動輪替週期）；簽到／看板 QR **不再**於網址附 `checkinToken`；管理頁與看板 QR 下方即時顯示目前驗證碼；簽到頁手動輸入驗證碼後呼叫 `publicListRoster`／`publicGetPersonStatus`／`publicSubmitAttendance`；`**publicGetBoardState` 僅接受看板工作階段**（`publicExchangeBoardPairCode` 一次性授權碼），不得以簽到驗證碼讀看板；`publicListBoardEvents` 各活動新增 `requiresCheckinCode`
 - **v0.2.8**：簽到頁在活動**已要求驗證碼**且尚未輸滿 6 位時，**不再呼叫** `publicListRoster`（避免誤判為名單載入失敗）；輸入驗證碼過程中會自動重試載入名單與狀態
 - **v0.2.9**：後端 `assertCheckinTokenMatches_`：活動**未**設定驗證碼時，若仍帶入非空 `token` 則拒絕（避免任意六位數看似通過）；簽到頁僅在 `requiresCheckinCode` 為真時才把驗證碼送 API，並隱藏／清空不需驗證之活動的輸入欄
+- **v0.3.0**：**效能與響應速度大幅優化**：
+  1. `doGet` 快照載入，避免每次重複檢查 Drive 與 7 張工作表標題。
+  2. 看板快取改用 `CacheService.getScriptCache()` 並提升 TTL 至 20 秒以上，修正快取未命中問題。
+  3. `publicSubmitAttendance` 縮短全域鎖持有範圍，試算表物件增加單次請求記憶體快取。
+  4. 簽到頁透過伺服端 Bootstrap 預先注入名單，消除瀑布式等待。
+  5. 活動列表讀取消除 Config 表 N+1 查詢；管理頁切換活動改為並行載入（`Promise.all`）。
+  6. 前端姓名即時搜尋加入 180ms 防抖（Debounce），避免手機打字卡頓。
 - 已完成：管理頁分組/名單 CRUD、每日附件圖片上傳/刪除
 - **維護**：已自看板頁 `[Board.html](Board.html)` 移除開發用除錯 ingest 埋點。
 - **看板變更提示**：名單指紋變更且已開啟「變更提示」時，[`Board.html`](Board.html) 先更新名單再於畫面**中央卡片**比對上一輪狀態，顯示「姓名：狀態」（沿用 `statusLabel`）；多人時至多兩行後附「等共 N 人狀態變更」；僅時間戳等非狀態差異則「名單已更新」。可點半透明背景、**Esc** 或約 4 秒後關閉；**無**全螢幕滑動轉場。

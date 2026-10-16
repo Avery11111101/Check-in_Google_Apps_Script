@@ -7,6 +7,19 @@ function publicListBoardEvents(onlyOpen) {
   const ss = getDb_();
   const sh = ss.getSheetByName(SHEETS.EVENTS);
   const rows = sh.getDataRange().getValues();
+
+  // 一次讀取 Config 表，避免 N+1 呼叫 getEventCheckinToken_
+  const shCfg = ss.getSheetByName(SHEETS.CONFIG);
+  const cfgRows = shCfg ? shCfg.getDataRange().getValues() : [];
+  const tokenMap = {};
+  for (let c = 1; c < cfgRows.length; c++) {
+    const k = String(cfgRows[c][0] || '');
+    if (k.indexOf('EVENT_CHECKIN_TOKEN_') === 0 && k.indexOf('EVENT_CHECKIN_TOKEN_PREV_') !== 0 && k.indexOf('EVENT_CHECKIN_TOKEN_ROTATE_') !== 0 && k.indexOf('EVENT_CHECKIN_TOKEN_LEGACY_') !== 0) {
+      const eid = k.replace('EVENT_CHECKIN_TOKEN_', '');
+      tokenMap[eid] = String(cfgRows[c][1] || '').trim();
+    }
+  }
+
   const out = [];
   for (let i = 1; i < rows.length; i++) {
     const r = rows[i];
@@ -19,7 +32,7 @@ function publicListBoardEvents(onlyOpen) {
       name: String(r[1] || ''),
       isOpen,
       createdAt: cellToPlain_(r[7]),
-      requiresCheckinCode: !!String(getEventCheckinToken_(eidRow) || '').trim(),
+      requiresCheckinCode: !!(tokenMap[eidRow] || String(getEventCheckinToken_(eidRow) || '').trim()),
     });
   }
   out.sort((a, b) => String(b.createdAt).localeCompare(String(a.createdAt)));
@@ -32,10 +45,11 @@ function publicGetBoardState(eventId, token) {
 
   const checkinUrl = buildPublicCheckinUrl_(eid, getEventCheckinToken_(eid));
 
-  const ttl = getBoardStateCacheTtlSeconds_();
-  if (ttl > 0 && eid) {
+  const configuredTtl = getBoardStateCacheTtlSeconds_();
+  const ttl = configuredTtl > 0 ? Math.max(configuredTtl, 20) : 20;
+  if (eid) {
     try {
-      const cache = CacheService.getDocumentCache();
+      const cache = CacheService.getScriptCache();
       const hit = cache.get(boardStateCacheKey_(eid));
       if (hit) {
         const parsed = JSON.parse(hit);
@@ -149,7 +163,7 @@ function publicGetBoardState(eventId, token) {
   const payload = Object.assign({}, coreForCache, { checkinUrl: checkinUrl, currentCheckinCode: currentCheckinCode }, meta);
   if (ttl > 0 && eid) {
     try {
-      const cache = CacheService.getDocumentCache();
+      const cache = CacheService.getScriptCache();
       const serialized = JSON.stringify(coreForCache);
       if (serialized.length < 95000) {
         cache.put(boardStateCacheKey_(eid), serialized, ttl);

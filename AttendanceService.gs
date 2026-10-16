@@ -1,23 +1,24 @@
 function publicSubmitAttendance(payload) {
+  const eventId = String(payload.eventId || '').trim();
+  const personId = String(payload.personId || '').trim();
+  const action = String(payload.action || '').trim().toUpperCase(); // IN | OUT
+  const font = String(payload.font || '').trim();
+  const clientMeta = payload.clientMeta || {};
+  const token = payload && payload.token != null ? String(payload.token) : '';
+
+  if (!eventId) throw new Error('缺少 eventId。');
+  if (!personId) throw new Error('缺少 personId。');
+  if (action !== 'IN' && action !== 'OUT') throw new Error('action 必須是 IN 或 OUT。');
+
+  // 1. 於鎖外進行驗證，不佔用鎖排隊資源
+  assertPublicEventToken_(eventId, token);
+  if (!isEventOpen_(eventId)) throw new Error('此活動尚未開放簽到/簽退。請通知管理員開啟。');
+  assertPersonInEvent_(eventId, personId);
+
+  // 2. 鎖內僅執行狀態比對與原子性寫入
   const lock = LockService.getScriptLock();
   lock.waitLock(15000);
   try {
-    const eventId = String(payload.eventId || '').trim();
-    const personId = String(payload.personId || '').trim();
-    const action = String(payload.action || '').trim().toUpperCase(); // IN | OUT
-    const font = String(payload.font || '').trim();
-    const clientMeta = payload.clientMeta || {};
-    const token = payload && payload.token != null ? String(payload.token) : '';
-
-    if (!eventId) throw new Error('缺少 eventId。');
-    if (!personId) throw new Error('缺少 personId。');
-    if (action !== 'IN' && action !== 'OUT') throw new Error('action 必須是 IN 或 OUT。');
-
-    assertPublicEventToken_(eventId, token);
-
-    if (!isEventOpen_(eventId)) throw new Error('此活動尚未開放簽到/簽退。請通知管理員開啟。');
-    assertPersonInEvent_(eventId, personId);
-
     const now = new Date();
     const serverTimeStr = cellToPlain_(now);
     const last = getStatus_(eventId, personId);

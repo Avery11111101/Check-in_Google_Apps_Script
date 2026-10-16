@@ -8,23 +8,29 @@ const SHEETS = {
   ATTACH: 'DailyAttachments',
 };
 
+let _cachedDbSpreadsheet = null;
+
 function getDb_() {
+  if (_cachedDbSpreadsheet) return _cachedDbSpreadsheet;
   const props = PropertiesService.getScriptProperties();
   let id = props.getProperty('SPREADSHEET_ID');
   if (!id) {
     ensureInitialized_();
     id = props.getProperty('SPREADSHEET_ID');
     if (!id) throw new Error('無法建立或開啟資料試算表。');
-    return SpreadsheetApp.openById(id);
+    _cachedDbSpreadsheet = SpreadsheetApp.openById(id);
+    return _cachedDbSpreadsheet;
   }
   try {
-    return SpreadsheetApp.openById(id);
+    _cachedDbSpreadsheet = SpreadsheetApp.openById(id);
+    return _cachedDbSpreadsheet;
   } catch (_e) {
     props.deleteProperty('SPREADSHEET_ID');
     ensureInitialized_();
     id = props.getProperty('SPREADSHEET_ID');
     if (!id) throw new Error('試算表已不存在或無權限，且自動重建失敗。');
-    return SpreadsheetApp.openById(id);
+    _cachedDbSpreadsheet = SpreadsheetApp.openById(id);
+    return _cachedDbSpreadsheet;
   }
 }
 

@@ -1,5 +1,5 @@
 const APP = {
-  VERSION: '0.2.9',
+  VERSION: '0.3.0',
   PAGES: {
     CHECKIN: 'checkin',
     ADMIN: 'admin',
@@ -117,7 +117,15 @@ function doGet(e) {
   }
 
   const t = HtmlService.createTemplateFromFile('Checkin');
-  t.bootstrap = getBootstrap_({ page: APP.PAGES.CHECKIN, eventId, checkinToken: '' });
+  const boot = getBootstrap_({ page: APP.PAGES.CHECKIN, eventId, checkinToken: '' });
+  if (eventId) {
+    try {
+      boot.initialRoster = publicListRoster(eventId, '');
+    } catch (_e) {
+      boot.initialRoster = [];
+    }
+  }
+  t.bootstrap = boot;
   return t.evaluate().setTitle('簽到系統｜簽到').setXFrameOptionsMode(HtmlService.XFrameOptionsMode.ALLOWALL);
 }
 
@@ -162,7 +170,7 @@ function getWebAppExecUrlForClient() {
 }
 
 function getBootstrap_(ctx) {
-  const env = ensureInitialized_();
+  const env = getInitializedEnvFast_();
   const base = {
     version: APP.VERSION,
     page: ctx.page,
@@ -178,6 +186,18 @@ function getBootstrap_(ctx) {
     base.boardTransitionDefault = getBoardTransitionDefault_();
   }
   return base;
+}
+
+function getInitializedEnvFast_() {
+  const props = PropertiesService.getScriptProperties();
+  const spreadsheetId = props.getProperty('SPREADSHEET_ID');
+  const driveFolderId = props.getProperty('DRIVE_FOLDER_ID');
+
+  // 若已初始化過，直接回傳，不再呼叫 DriveApp 與 initSheets_
+  if (spreadsheetId && driveFolderId) {
+    return { spreadsheetId, driveFolderId };
+  }
+  return ensureInitialized_();
 }
 
 /** Script Property BOARD_TRANSITION_DEFAULT：未設定時視為開啟。 */

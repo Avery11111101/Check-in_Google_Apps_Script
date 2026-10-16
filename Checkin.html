@@ -446,7 +446,13 @@
           loadPersistedCheckinCodeIntoField();
           updateCheckinCodeHintUi();
           updateCheckinGateStatusUi();
-          await Promise.all([refreshRoster(), refreshStatus()]);
+          if (BOOT && Array.isArray(BOOT.initialRoster) && BOOT.initialRoster.length > 0 && sel.value === BOOT.eventId) {
+            ROSTER_FULL = BOOT.initialRoster;
+            applyPersonFilter(($('#personSearch').value || '').trim());
+            await refreshStatus();
+          } else {
+            await Promise.all([refreshRoster(), refreshStatus()]);
+          }
         } catch (e) {
           sel.innerHTML = '<option value=\"\">載入失敗</option>';
           hint.textContent = '無法載入活動清單：' + formatApiError(e);
@@ -640,9 +646,9 @@
           debouncedReloadAfterCode();
         });
       }
-      $('#personSearch').addEventListener('input', function(){
+      $('#personSearch').addEventListener('input', debounce(function(){
         applyPersonFilter(($('#personSearch').value || '').trim());
-      });
+      }, 180));
       $('#personSelect').addEventListener('change', function(){ void refreshStatus(); });
 
       setAction(null);
