@@ -14,8 +14,13 @@
         } catch (_e) {}
       })();
     </script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+    <script>
+      if (typeof QRCode === 'undefined') {
+        document.write('<?!= include("qrlib.js"); ?>');
+      }
+    </script>
     <?!= include('app.css'); ?>
-    <?!= include('qrlib.js'); ?>
   </head>
   <body class="page-board">
     <div class="appBg">
@@ -437,7 +442,15 @@
       }
 
       function buildStructKey_(state){
-        if (!state || !state.groups) return '';
+        if (!state) return '';
+        if (state.categories && state.categories.length) {
+          return state.categories.map(function(c){
+            return c.category + ':' + (c.groups || []).map(function(g){
+              return (g.groupId || g.groupName) + ':' + (g.people || []).map(function(p){ return p.personId; }).join(',');
+            }).join(';');
+          }).join('|');
+        }
+        if (!state.groups) return '';
         return (state.groups || []).map(function(g){
           var gid = g.groupId || (String(g.category || '') + '\t' + String(g.groupName || ''));
           var ids = (g.people || []).map(function(p){ return p.personId; }).join(',');
@@ -458,7 +471,35 @@
         );
       }
 
-      function renderFullBoard_(groups){
+      function renderFullBoard_(groups, categories){
+        if (categories && categories.length) {
+          $('#board').innerHTML = '<div class="boardCategoryGrid">' + categories.map(function(cat){
+            var subGroupsHtml = (cat.groups || []).map(function(sg){
+              var peopleHtml = (sg.people || []).map(buildPersonHtml_).join('');
+              return (
+                '<div class="boardSubgroupBlock">' +
+                  '<div class="boardSubgroupTitle">' +
+                    '<span>📂 ' + esc(sg.groupName) + '</span>' +
+                    '<span class="badge mono" style="font-size:11px">' + (sg.people || []).length + ' 人</span>' +
+                  '</div>' +
+                  '<div class="boardCols">' + peopleHtml + '</div>' +
+                '</div>'
+              );
+            }).join('');
+
+            return (
+              '<div class="boardCategoryCard">' +
+                '<div class="boardCategoryCard__head">' +
+                  '<div class="boardCategoryCard__title">📁 ' + esc(cat.category) + '</div>' +
+                  '<div class="badge" style="font-size:12px">實到 ' + cat.signed + ' / 應到 ' + cat.total + ' (' + cat.attendanceRate + '%)</div>' +
+                '</div>' +
+                subGroupsHtml +
+              '</div>'
+            );
+          }).join('') + '</div>';
+          return;
+        }
+
         $('#board').innerHTML = groups.map(function(g){
           var peopleHtml = (g.people || []).map(buildPersonHtml_).join('');
           return (
@@ -547,7 +588,7 @@
         if (nextStructKey === lastBoardStructKey && lastBoardStructKey) {
           if (patchBoardInPlace_(groups)) return;
         }
-        renderFullBoard_(groups);
+        renderFullBoard_(groups, state.categories);
         lastBoardStructKey = nextStructKey;
       }
 

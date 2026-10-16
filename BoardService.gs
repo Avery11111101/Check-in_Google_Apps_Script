@@ -33,6 +33,8 @@ function publicListBoardEvents(onlyOpen) {
       isOpen,
       createdAt: cellToPlain_(r[7]),
       requiresCheckinCode: !!(tokenMap[eidRow] || String(getEventCheckinToken_(eidRow) || '').trim()),
+      requirePassword: String(r[8] || '') === 'TRUE' || r[8] === true,
+      allowChangePassword: String(r[9] || '') === 'TRUE' || r[9] === true,
     });
   }
   out.sort((a, b) => String(b.createdAt).localeCompare(String(a.createdAt)));
@@ -155,9 +157,43 @@ function publicGetBoardState(eventId, token) {
     });
   }
 
+  const categoryMap = new Map();
+  for (let i = 0; i < outGroups.length; i++) {
+    const og = outGroups[i];
+    const catName = og.category || '未分類';
+    if (!categoryMap.has(catName)) {
+      categoryMap.set(catName, {
+        category: catName,
+        total: 0,
+        signed: 0,
+        notYet: 0,
+        signedOut: 0,
+        groups: [],
+      });
+    }
+    const catEntry = categoryMap.get(catName);
+    catEntry.groups.push({
+      groupId: og.groupId,
+      groupName: og.groupName,
+      people: og.people,
+    });
+    for (let pIdx = 0; pIdx < og.people.length; pIdx++) {
+      const st = og.people[pIdx].status;
+      catEntry.total++;
+      if (st === 'IN') catEntry.signed++;
+      else if (st === 'OUT') catEntry.signedOut++;
+      else catEntry.notYet++;
+    }
+  }
+
+  const outCategories = Array.from(categoryMap.values()).map(c => {
+    c.attendanceRate = c.total > 0 ? ((c.signed / c.total) * 100).toFixed(1) : '0.0';
+    return c;
+  });
+
   /** `now` 用字串避免 HtmlService 客戶端序列化含 Date 物件時整包變 null。快取僅存名單狀態本體，簽到網址與失效倒數每次回傳時再併入，避免短 TTL 快取內文字過期。 */
   const nowStr = cellToPlain_(new Date());
-  const coreForCache = { ok: true, now: nowStr, groups: outGroups };
+  const coreForCache = { ok: true, now: nowStr, groups: outGroups, categories: outCategories };
   const meta = getBoardCheckinQrExpiryMeta_(eid);
   const currentCheckinCode = getCurrentCheckinCodeForDisplay_(eid);
   const payload = Object.assign({}, coreForCache, { checkinUrl: checkinUrl, currentCheckinCode: currentCheckinCode }, meta);

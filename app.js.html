@@ -67,7 +67,7 @@
 
   /** 將按鈕標為「忙碌」（disabled + 顯示替代文字），完成後自動復原。 */
   function withButtonBusy(btn, asyncFn, opts){
-    if (!btn) return Promise.resolve(asyncFn && asyncFn());
+    if (!btn) return Promise.resolve().then(asyncFn);
     var prevText = btn.textContent;
     var prevDisabled = btn.disabled;
     var busyText = (opts && opts.busyText) ? String(opts.busyText) : '處理中…';
@@ -75,15 +75,9 @@
     btn.textContent = busyText;
     return Promise.resolve()
       .then(function(){ return asyncFn(); })
-      .then(function(r){
+      .finally(function(){
         btn.disabled = prevDisabled;
         btn.textContent = prevText;
-        return r;
-      })
-      .catch(function(err){
-        btn.disabled = prevDisabled;
-        btn.textContent = prevText;
-        throw err;
       });
   }
 
@@ -192,12 +186,22 @@
   }
 
   function api(name, ...args){
-    return new Promise((resolve, reject) => {
+    var timeoutPromise = new Promise(function(_, reject){
+      setTimeout(function(){
+        reject(new Error('伺服器請求逾時（超過 15 秒未回應），請檢查網路連線或稍後再試。'));
+      }, 15000);
+    });
+    var callPromise = new Promise(function(resolve, reject){
+      if (typeof google === 'undefined' || !google.script || !google.script.run || typeof google.script.run[name] !== 'function') {
+        reject(new Error('未在 Google Apps Script 環境中或 API 函式不存在：' + name));
+        return;
+      }
       google.script.run
         .withSuccessHandler(resolve)
-        .withFailureHandler(err => reject(err))
+        .withFailureHandler(function(err){ reject(err); })
         [name](...args);
     });
+    return Promise.race([callPromise, timeoutPromise]);
   }
 
   function formatApiError(err){

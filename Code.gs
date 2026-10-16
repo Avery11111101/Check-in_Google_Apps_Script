@@ -1,5 +1,5 @@
 const APP = {
-  VERSION: '0.3.0',
+  VERSION: '0.4.0',
   PAGES: {
     CHECKIN: 'checkin',
     ADMIN: 'admin',
@@ -52,8 +52,9 @@ function doGet(e) {
   const eventId = getDoGetParamFirst_(e, 'eventId');
 
   if (page === APP.PAGES.ADMIN) {
+    const adminToken = getDoGetParamFirst_(e, 'adminToken');
     try {
-      requireAdmin_();
+      requireAdmin_(adminToken);
     } catch (authErr) {
       const msg = authErr && authErr.message ? String(authErr.message) : '無法驗證管理員身分。';
       const needLogin = msg.indexOf('需要登入 Google 帳號') !== -1;
@@ -71,6 +72,17 @@ function doGet(e) {
           '" target="_top" rel="noopener noreferrer" style="display:inline-block;padding:10px 18px;background:#1a73e8;color:#fff;text-decoration:none;border-radius:8px;font-weight:650">由此登入 Google 帳號</a></p>' +
           '<p style="margin-top:10px;color:#666;font-size:14px">登入完成後請<strong>重新整理本頁</strong>，或再次開啟管理頁連結。</p>'
         : '';
+      const tokenLoginForm =
+        '<form method="get" action="" style="margin-top:18px;padding-top:16px;border-top:1px solid #e0e0e0">' +
+        '<input type="hidden" name="page" value="admin">' +
+        (eventId ? '<input type="hidden" name="eventId" value="' + esc(eventId) + '">' : '') +
+        '<label style="font-weight:600;display:block;margin-bottom:8px;font-size:14px;color:#333">若無 Google 登入資訊，請使用「管理員金鑰 (ADMIN_SECRET_TOKEN)」登入：</label>' +
+        '<div style="display:flex;gap:8px">' +
+        '<input type="password" name="adminToken" placeholder="輸入管理員金鑰" required style="flex:1;padding:8px 12px;border:1px solid #dadce0;border-radius:6px;font-size:14px">' +
+        '<button type="submit" style="padding:8px 16px;background:#1a73e8;color:#fff;border:none;border-radius:6px;font-weight:600;cursor:pointer">登入管理頁</button>' +
+        '</div>' +
+        '<p style="margin:8px 0 0;color:#666;font-size:12px">金鑰可在 Apps Script 專案設定 → 指令碼屬性中查看或自訂。</p>' +
+        '</form>';
       const hint = needLogin
         ? '<p style="margin-top:12px;color:#555;font-size:14px">若已登入仍看到此訊息，請改用與管理員相同的瀏覽器設定檔，或改用無痕視窗只登入一個帳號。</p>'
         : '<p style="margin-top:12px;color:#555;font-size:14px">請確認已登入與指令碼屬性 <code>ADMIN_EMAILS</code> 相符之 Google 帳號（<strong>不分大小寫</strong>；多筆以逗號分隔時，目前登入者須為其中一筆）。</p>';
@@ -86,7 +98,7 @@ function doGet(e) {
       const deployModeHint = likelyWebAppRunAsDeployer
         ? '<div style="margin-top:14px;padding:14px;background:#fff8e1;border:1px solid #f0b429;border-radius:8px;color:#5c4a00;font-size:14px;line-height:1.6">' +
           '<strong>常見原因：</strong>Web App 為「<strong>以擁有者身分執行</strong>」時，為了讓訪客可不登入即簽到，伺服端通常<strong>讀不到</strong>您瀏覽器目前登入之 Google email。' +
-          '<p style="margin:10px 0 0">請以<strong>建立此 Apps Script 專案的同一 Google 帳號</strong>登入後再開管理頁。若 <code>ADMIN_EMAILS</code> 曾手動改成其他 email，請改回可在此模式下取得 email 的帳號，或改為「使用者存取應用程式」部署（與匿名簽到較難並存於同一設定）。</p>' +
+          '<p style="margin:10px 0 0">此時可直接使用下方的<strong>管理員金鑰</strong>登入，或以建立此專案的同一 Google 帳號登入。</p>' +
           '</div>'
         : '';
       const body =
@@ -97,17 +109,18 @@ function doGet(e) {
         esc(msg) +
         '</p>' +
         loginBlock +
+        tokenLoginForm +
         hint +
         deployModeHint +
         '</div>' +
         '</body></html>';
       return HtmlService.createHtmlOutput(body)
         .setTitle('簽到系統｜管理')
-        .setXFrameOptionsMode(HtmlService.XFrameOptionsMode.ALLOWALL);
+        .setXFrameOptionsMode(HtmlService.XFrameOptionsMode.DEFAULT);
     }
     const t = HtmlService.createTemplateFromFile('Admin');
     t.bootstrap = getBootstrap_({ page, eventId, checkinToken: '' });
-    return t.evaluate().setTitle('簽到系統｜管理').setXFrameOptionsMode(HtmlService.XFrameOptionsMode.ALLOWALL);
+    return t.evaluate().setTitle('簽到系統｜管理').setXFrameOptionsMode(HtmlService.XFrameOptionsMode.DEFAULT);
   }
 
   if (page === APP.PAGES.BOARD) {
@@ -117,10 +130,12 @@ function doGet(e) {
   }
 
   const t = HtmlService.createTemplateFromFile('Checkin');
-  const boot = getBootstrap_({ page: APP.PAGES.CHECKIN, eventId, checkinToken: '' });
+  const checkinCode = getDoGetParamFirst_(e, 'c') || getDoGetParamFirst_(e, 'checkinToken');
+  const boot = getBootstrap_({ page: APP.PAGES.CHECKIN, eventId, checkinToken: checkinCode || '' });
+  boot.checkinCode = checkinCode || '';
   if (eventId) {
     try {
-      boot.initialRoster = publicListRoster(eventId, '');
+      boot.initialRoster = publicListRoster(eventId, checkinCode || '');
     } catch (_e) {
       boot.initialRoster = [];
     }
@@ -268,6 +283,9 @@ function initConfigDefaults_() {
   }
   if (!props.getProperty('BOARD_STATE_CACHE_TTL_SECONDS')) props.setProperty('BOARD_STATE_CACHE_TTL_SECONDS', '2');
   if (!props.getProperty('BOARD_TRANSITION_DEFAULT')) props.setProperty('BOARD_TRANSITION_DEFAULT', 'true');
+  if (!props.getProperty('ADMIN_SECRET_TOKEN')) {
+    props.setProperty('ADMIN_SECRET_TOKEN', Utilities.getUuid().replace(/-/g, '').slice(0, 16));
+  }
 }
 
 function safeGetUserEmail_() {

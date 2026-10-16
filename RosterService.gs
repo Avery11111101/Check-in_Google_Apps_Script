@@ -16,6 +16,8 @@ function adminListEvents() {
       driveFolderId: String(r[5] || ''),
       driveFolderUrl: String(r[6] || ''),
       createdAt: cellToPlain_(r[7]),
+      requirePassword: String(r[8] || '') === 'TRUE' || r[8] === true,
+      allowChangePassword: String(r[9] || '') === 'TRUE' || r[9] === true,
     });
   }
   out.sort((a, b) => String(b.createdAt).localeCompare(String(a.createdAt)));
@@ -29,9 +31,27 @@ function adminCreateEvent(payload) {
   const name = (payload && payload.name) ? String(payload.name).trim() : '';
   if (!name) throw new Error('活動名稱不可為空。');
 
+  const sourceEventId = (payload && payload.sourceEventId) ? String(payload.sourceEventId).trim() : '';
+  let requirePassword = !!(payload && payload.requirePassword);
+  let allowChangePassword = !!(payload && payload.allowChangePassword);
+
   const ss = getDb_();
-  const sh = ss.getSheetByName(SHEETS.EVENTS);
+  const shEvents = ss.getSheetByName(SHEETS.EVENTS);
   const eventId = newId_('evt');
+
+  // 若有來源活動，可繼承其密碼設定（若當前未特別指定）
+  if (sourceEventId && (payload.requirePassword === undefined || payload.requirePassword === null)) {
+    const eventRows = shEvents.getDataRange().getValues();
+    for (let e = 1; e < eventRows.length; e++) {
+      if (String(eventRows[e][0]) === sourceEventId) {
+        requirePassword = String(eventRows[e][8] || '') === 'TRUE' || eventRows[e][8] === true;
+        if (payload.allowChangePassword === undefined || payload.allowChangePassword === null) {
+          allowChangePassword = String(eventRows[e][9] || '') === 'TRUE' || eventRows[e][9] === true;
+        }
+        break;
+      }
+    }
+  }
 
   const root = DriveApp.getFolderById(env.driveFolderId);
   const stamp = driveTimeStampForNaming_();
@@ -44,8 +64,97 @@ function adminCreateEvent(payload) {
   const settingsTitle = '電子簽到_' + safe + '_' + stamp + '_設定';
   const driveSettingsUrl = createEventSettingsSpreadsheet_(folder, settingsTitle, eventId, name);
 
-  sh.appendRow([eventId, name, '', '', false, driveFolderId, driveFolderUrl, new Date()]);
-  return { ok: true, eventId, name, driveFolderId, driveFolderUrl, driveSettingsUrl };
+  shEvents.appendRow([eventId, name, '', '', false, driveFolderId, driveFolderUrl, new Date(), requirePassword, allowChangePassword]);
+
+  let copiedGroupsCount = 0;
+  let copiedRosterCount = 0;
+  if (sourceEventId) {
+    const shGroups = ss.getSheetByName(SHEETS.GROUPS);
+    const grpRows = shGroups.getDataRange().getValues();
+    const groupMap = {};
+    const newGrpRows = [];
+
+    for (let g = 1; g < grpRows.length; g++) {
+      const gr = grpRows[g];
+      if (String(gr[1]) === sourceEventId && gr[0]) {
+        const oldGrpId = String(gr[0]);
+        const newGrpId = newId_('grp');
+        groupMap[oldGrpId] = newGrpId;
+        newGrpRows.push([newGrpId, eventId, String(gr[2] || ''), String(gr[3] || ''), Number(gr[4] || 0)]);
+      }
+    }
+    if (newGrpRows.length > 0) {
+      const lastG = shGroups.getLastRow();
+      shGroups.getRange(lastG + 1, 1, newGrpRows.length, 5).setValues(newGrpRows);
+      copiedGroupsCount = newGrpRows.length;
+    }
+
+    const shRoster = ss.getSheetByName(SHEETS.ROSTER);
+    const rosRows = shRoster.getDataRange().getValues();
+    const newRosRows = [];
+    for (let r = 1; r < rosRows.length; r++) {
+      const rr = rosRows[r];
+      if (String(rr[1]) === sourceEventId && rr[0]) {
+        const oldGrpId = String(rr[2] || '');
+        const targetGrpId = groupMap[oldGrpId] || '';
+        const newPersonId = newId_('p');
+        newRosRows.push([
+          newPersonId,
+          eventId,
+          targetGrpId,
+          String(rr[3] || ''),
+          String(rr[4] || ''),
+          !(String(rr[5]) === 'FALSE' || rr[5] === false),
+          Number(rr[6] || 0),
+          String(rr[7] || ''),
+        ]);
+      }
+    }
+    if (newRosRows.length > 0) {
+      const lastR = shRoster.getLastRow();
+      shRoster.getRange(lastR + 1, 1, newRosRows.length, 8).setValues(newRosRows);
+      copiedRosterCount = newRosRows.length;
+    }
+  }
+
+  return {
+    ok: true,
+    eventId,
+    name,
+    driveFolderId,
+    driveFolderUrl,
+    driveSettingsUrl,
+    copiedGroupsCount,
+    copiedRosterCount,
+    requirePassword,
+    allowChangePassword,
+  };
+}
+
+function adminUpdateEventSettings(payload) {
+  requireAdmin_();
+  const eventId = String((payload && payload.eventId) || '').trim();
+  if (!eventId) throw new Error('缺少 eventId。');
+
+  const ss = getDb_();
+  const sh = ss.getSheetByName(SHEETS.EVENTS);
+  const rows = sh.getDataRange().getValues();
+  for (let i = 1; i < rows.length; i++) {
+    if (String(rows[i][0]) === eventId) {
+      if (payload.name !== undefined) {
+        const n = String(payload.name).trim();
+        if (n) sh.getRange(i + 1, 2).setValue(n);
+      }
+      if (payload.requirePassword !== undefined) {
+        sh.getRange(i + 1, 9).setValue(!!payload.requirePassword);
+      }
+      if (payload.allowChangePassword !== undefined) {
+        sh.getRange(i + 1, 10).setValue(!!payload.allowChangePassword);
+      }
+      return { ok: true };
+    }
+  }
+  throw new Error('找不到活動。');
 }
 
 function adminSetEventOpen(payload) {

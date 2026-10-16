@@ -15,6 +15,12 @@
         } catch (_e) {}
       })();
     </script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+    <script>
+      if (typeof QRCode === 'undefined') {
+        document.write('<?!= include("qrlib.js"); ?>');
+      }
+    </script>
     <?!= include('app.css'); ?>
   </head>
   <body class="page-checkin">
@@ -22,8 +28,8 @@
     <div class="container">
       <div class="topbar">
         <div>
-          <div class="title">簽到</div>
-          <div class="subtitle">選擇姓名後，往左滑動確認</div>
+          <div class="title">快速簽到</div>
+          <div class="subtitle">選定姓名後，點擊「確認簽到」即可完成</div>
         </div>
         <div class="topActions">
           <div id="topNav"></div>
@@ -44,8 +50,8 @@
           </div>
 
           <div class="field">
-            <label for="personSearch">姓名（可搜尋或從下拉選擇）</label>
-            <input type="search" id="personSearch" placeholder="輸入關鍵字篩選名單（選填）" autocomplete="off">
+            <label for="personSearch">姓名（搜尋或下拉選擇）</label>
+            <input type="search" id="personSearch" placeholder="請輸入姓名關鍵字…" autocomplete="off" autofocus>
             <select id="personSelect" style="margin-top:8px">
               <option value="">請先選擇活動</option>
             </select>
@@ -53,47 +59,105 @@
 
           <div class="field" id="checkinCodeWrap">
             <label for="checkinCode">現場簽到驗證碼（6 位數字）</label>
-            <input type="text" id="checkinCode" class="mono" inputmode="numeric" maxlength="6" placeholder="見管理頁或看板 QR 下方" autocomplete="one-time-code" style="max-width:220px;letter-spacing:0.12em;font-size:1.05rem">
+            <input type="text" id="checkinCode" class="mono" inputmode="numeric" maxlength="6" placeholder="請輸入 6 位驗證碼" autocomplete="one-time-code" style="max-width:220px;letter-spacing:0.12em;font-size:1.05rem">
             <div id="checkinCodeHint" class="hint">若活動有設定驗證碼則必填；未設定之活動可留空。</div>
           </div>
 
-          <div class="field">
-            <label>動作</label>
-            <div class="row checkinActionRow">
-              <button type="button" id="btnIn">簽到</button>
-              <button type="button" id="btnOut" class="secondary">簽退</button>
+          <!-- 動態個人密碼輸入框（若活動啟用 requirePassword） -->
+          <div class="field" id="personPasswordWrap" style="display:none">
+            <div style="display:flex;justify-content:space-between;align-items:center">
+              <label for="personPassword" id="personPasswordLabel">個人簽到密碼</label>
+              <button type="button" id="btnOpenChangePwd" class="secondary" style="display:none;padding:2px 8px;font-size:12px;min-height:28px">變更密碼</button>
             </div>
-            <div id="checkinGateStatus" class="pill openStatusPill" style="display:none" role="status" aria-live="polite"></div>
-            <div class="hint">選好動作後，往左滑到底就會送出。</div>
+            <input type="password" id="personPassword" placeholder="請輸入個人密碼" autocomplete="current-password" style="max-width:280px">
+            <div id="personPasswordHint" class="hint"></div>
           </div>
 
-          <div class="slideWrap">
-            <div class="slideLabel">
-              <div class="pill"><span class="dot" id="actionDot"></span><span id="actionText">尚未選擇動作</span></div>
-              <div class="badge mono" id="serverTime"></div>
+          <div class="field">
+            <label>簽到動作</label>
+            <div class="row checkinActionRow" style="margin-bottom:12px">
+              <button type="button" id="btnIn" style="flex:1">簽到</button>
+              <button type="button" id="btnOut" class="secondary" style="flex:1">簽退</button>
             </div>
-            <div class="slideBar" id="slideBar">
-              <div class="slideText" id="slideHint">往左滑動確認</div>
-              <div class="thumb" id="thumb" role="slider" tabindex="0" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0" aria-label="輸入驗證碼後往左滑到底以確認簽到或簽退；亦可用 Enter 送出" aria-busy="false">滑動</div>
+            <div id="checkinGateStatus" class="pill openStatusPill" style="display:none" role="status" aria-live="polite"></div>
+          </div>
+
+          <!-- 行動端大按鈕確認區 -->
+          <div style="margin-top:16px">
+            <button type="button" id="btnSubmitCheckin" class="btnCheckinSubmit in">
+              <span id="btnSubmitText">確認簽到</span>
+            </button>
+            <div style="display:flex;justify-content:space-between;align-items:center;margin-top:8px">
+              <div class="pill" style="font-size:12px"><span class="dot ok" id="actionDot"></span><span id="actionText">即將簽到</span></div>
+              <div class="badge mono" id="serverTime" style="font-size:11px"></div>
             </div>
-            <div class="toast" id="toast" role="status" aria-live="polite"></div>
+            <div class="toast" id="toast" role="status" aria-live="polite" style="margin-top:8px"></div>
           </div>
         </div>
 
         <div class="card">
           <h2>目前狀態</h2>
           <div id="statusBox" class="hint">請先選擇活動與姓名。</div>
-          <div style="margin-top:12px" class="hint">若出現「尚未開放」，請通知管理員在管理頁點選「開放簽到」。</div>
+          <div style="margin-top:14px" class="hint">如顯示「尚未開放」，請洽現場管理員開啟活動簽到。</div>
         </div>
       </div>
     </div>
     </div>
 
+    <!-- 0.3秒真確認即時致意彈窗 -->
+    <div id="checkinSuccessModal" class="checkinSuccessModal" role="dialog" aria-modal="true" aria-labelledby="successTitle">
+      <div class="checkinSuccessCard">
+        <div class="checkinSuccessIcon">✓</div>
+        <div class="checkinSuccessName" id="successAttendeeName">王小明</div>
+        <div class="checkinSuccessAction" id="successActionLabel">簽到成功！</div>
+        <div class="checkinSuccessTime" id="successServerTime">伺服器時間：剛剛</div>
+        <div class="checkinSuccessTimerBar">
+          <div id="successProgress" class="checkinSuccessTimerProgress"></div>
+        </div>
+        <div class="checkinSuccessActions">
+          <button type="button" id="btnSuccessResetNext" style="flex:1">下一位 (0.8s)</button>
+          <button type="button" id="btnSuccessChangePwd" class="secondary" style="display:none">修改密碼</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- 變更個人密碼彈窗 -->
+    <div id="changePasswordModal" class="appModalBackdrop" role="dialog" aria-modal="true" aria-labelledby="pwdModalTitle">
+      <div class="appModalDialog">
+        <div class="appModalHeader">
+          <h3 id="pwdModalTitle">變更個人簽到密碼</h3>
+          <button type="button" class="appModalClose" id="btnCloseChangePwd">&times;</button>
+        </div>
+        <div class="field">
+          <label>姓名</label>
+          <input type="text" id="pwdPersonName" readonly class="mono" style="background:var(--surface2)">
+        </div>
+        <div class="field" id="oldPwdWrap">
+          <label for="inputOldPwd">目前密碼（若尚未設定可留空）</label>
+          <input type="password" id="inputOldPwd" placeholder="請輸入舊密碼">
+        </div>
+        <div class="field">
+          <label for="inputNewPwd">新密碼（4 至 50 字元）</label>
+          <input type="password" id="inputNewPwd" placeholder="請輸入新密碼">
+        </div>
+        <div class="field">
+          <label for="inputNewPwdConfirm">確認新密碼</label>
+          <input type="password" id="inputNewPwdConfirm" placeholder="請再次輸入新密碼">
+        </div>
+        <div id="pwdChangeErr" class="banner-error" style="display:none;margin-top:10px" role="alert"></div>
+        <div class="row" style="margin-top:16px;justify-content:flex-end">
+          <button type="button" id="btnCancelChangePwd" class="secondary">取消</button>
+          <button type="button" id="btnSubmitChangePwd">確認變更</button>
+        </div>
+      </div>
+    </div>
+
     <?!= include('app.js'); ?>
     <script>
       const BOOT = <?= JSON.stringify(bootstrap) ?>;
-      /** 由 `google.script.url.getLocation` 填入外層網址之列 `eventId`（Iframe 內用）。 */
       var __gasLockedEventId = '';
+      var __urlCheckinCode = '';
+
       function readParamFromGasUrlLoc_(loc, key){
         try {
           if (!loc) return '';
@@ -107,29 +171,34 @@
         } catch (_e) {}
         return '';
       }
+
       function bootstrapCheckinFromGasUrl_(done){
-        function finish(ev){
+        function finish(ev, cCode){
           __gasLockedEventId = String(ev || '').trim();
+          if (cCode) __urlCheckinCode = String(cCode).replace(/\D/g, '').slice(0, 6);
           if (typeof done === 'function') done();
         }
         if (typeof google === 'undefined' || !google.script || !google.script.url || typeof google.script.url.getLocation !== 'function') {
-          finish('');
+          finish('', '');
           return;
         }
         try {
           google.script.url.getLocation(function(loc){
-            finish(readParamFromGasUrlLoc_(loc, 'eventId'));
+            var eid = readParamFromGasUrlLoc_(loc, 'eventId');
+            var c = readParamFromGasUrlLoc_(loc, 'c') || readParamFromGasUrlLoc_(loc, 'checkinToken');
+            finish(eid, c);
           });
         } catch (_e2) {
-          finish('');
+          finish('', '');
         }
       }
+
       function getExecContextSearchParams(){
         function mergeFromUrl(params, urlStr){
           try {
             var u = new URL(String(urlStr || ''), 'https://script.google.com');
             var s = u.searchParams;
-            ['eventId', 'page'].forEach(function(k){
+            ['eventId', 'page', 'c', 'checkinToken'].forEach(function(k){
               var v = s.get(k);
               if (v != null && String(v).trim() !== '') params.set(k, String(v).trim());
             });
@@ -144,6 +213,7 @@
           return new URLSearchParams();
         }
       }
+
       function getEffectiveLockedEventId(){
         var b = String(BOOT.eventId || '').trim();
         if (b) return b;
@@ -154,19 +224,35 @@
           return '';
         }
       }
+
+      function getDirectUrlCheckinCode(){
+        if (__urlCheckinCode) return __urlCheckinCode;
+        if (BOOT && (BOOT.checkinCode || BOOT.checkinToken)) {
+          return String(BOOT.checkinCode || BOOT.checkinToken).replace(/\D/g, '').slice(0, 6);
+        }
+        try {
+          var sp = getExecContextSearchParams();
+          var c = sp.get('c') || sp.get('checkinToken');
+          if (c) return String(c).replace(/\D/g, '').slice(0, 6);
+        } catch (_e) {}
+        return '';
+      }
+
       function checkinCodeStorageKey(eventId){
         return 'checkinCode_' + String(eventId || '').trim();
       }
+
       function getEffectiveCheckinCode(){
         var inp = $('#checkinCode');
         var raw = inp ? String(inp.value || '').replace(/\D/g, '') : '';
         return raw.slice(0, 6);
       }
-      /** 未設定驗證碼之活動不向伺服端傳送欄位內容，避免任意六位數被當成「通過」。 */
+
       function getCheckinTokenForApi(){
         if (!getSelectedEventRequiresCheckinCode()) return '';
         return getEffectiveCheckinCode();
       }
+
       function persistCheckinCode(){
         var ev = $('#eventSelect').value.trim();
         var c = getEffectiveCheckinCode();
@@ -176,12 +262,19 @@
           else sessionStorage.removeItem(checkinCodeStorageKey(ev));
         } catch (_e) {}
       }
+
       function loadPersistedCheckinCodeIntoField(){
         var ev = $('#eventSelect').value.trim();
         var inp = $('#checkinCode');
         if (!inp) return;
         if (!ev) {
           inp.value = '';
+          return;
+        }
+        var directCode = getDirectUrlCheckinCode();
+        if (directCode && directCode.length === 6) {
+          inp.value = directCode;
+          persistCheckinCode();
           return;
         }
         try {
@@ -191,6 +284,7 @@
           inp.value = '';
         }
       }
+
       function clearCheckinCodeStorage(eventId){
         var eid = String(eventId || '').trim();
         if (!eid) return;
@@ -198,11 +292,16 @@
           sessionStorage.removeItem(checkinCodeStorageKey(eid));
         } catch (_e) {}
       }
-      function getSelectedEventRequiresCheckinCode(){
+
+      function getSelectedEventMeta(){
         var id = $('#eventSelect').value.trim();
-        if (!id) return false;
+        if (!id) return null;
         var list = window.__checkinEventsList || [];
-        var h = list.find(function(e){ return e.eventId === id; });
+        return list.find(function(e){ return e.eventId === id; }) || null;
+      }
+
+      function getSelectedEventRequiresCheckinCode(){
+        var h = getSelectedEventMeta();
         if (!h) return false;
         var v = h.requiresCheckinCode;
         if (v === true || v === 1) return true;
@@ -212,36 +311,49 @@
         }
         return false;
       }
+
       function updateCheckinCodeHintUi(){
         var wrap = $('#checkinCodeWrap');
         var hint = $('#checkinCodeHint');
         var need = getSelectedEventRequiresCheckinCode();
-        if (wrap) wrap.style.display = need ? '' : 'none';
+        var directCode = getDirectUrlCheckinCode();
+        if (wrap) {
+          // 若由 URL 直通且已填妥正確驗證碼，收合顯示以維持簡潔
+          if (need && directCode && directCode.length === 6) {
+            wrap.style.display = 'none';
+          } else {
+            wrap.style.display = need ? '' : 'none';
+          }
+        }
         if (!need) {
           var inpClear = $('#checkinCode');
           if (inpClear) inpClear.value = '';
         }
         if (!hint) return;
         if (need) {
-          hint.textContent = '此活動已設定驗證碼：請輸入 6 位數字後再載入名單與滑動簽到。';
+          hint.textContent = '此活動已設定驗證碼：請輸入 6 位數字後載入名單並完成簽到。';
         } else {
-          hint.textContent = '此活動未設定驗證碼，不需填寫本欄位。';
+          hint.textContent = '此活動未設定現場驗證碼，不需填寫。';
         }
       }
+
       function isLikelyCheckinCodeAuthError_(msg){
         var s = String(msg || '');
         if (s.indexOf('未於後台設定') !== -1) return false;
         return s.indexOf('驗證碼') !== -1 || s.indexOf('checkinToken') !== -1 || s.indexOf('密鑰') !== -1 || s.indexOf('存取密鑰') !== -1;
       }
+
       document.getElementById('topNav').appendChild(renderTopbarNav(BOOT));
       document.getElementById('themeToggleHost').appendChild(renderThemeToggle());
       refreshNavExecBaseFromServer(BOOT);
-      let action = null; // IN | OUT
+
+      let action = 'IN'; // 預設為簽到 IN
       let busy = false;
       let ROSTER_FULL = [];
       let checkinToastTimer = null;
       let rosterReqSeq = 0;
       let statusReqSeq = 0;
+      let currentPersonMeta = null; // { hasPassword, requirePassword, allowChangePassword }
 
       function setToast(msg, opts){
         const el = $('#toast');
@@ -271,40 +383,50 @@
       function setCheckinSubmittingUi(is){
         const inEl = $('#btnIn');
         const outEl = $('#btnOut');
-        const thumb = $('#thumb');
-        const bar = $('#slideBar');
+        const subBtn = $('#btnSubmitCheckin');
+        const subText = $('#btnSubmitText');
         if (inEl) inEl.disabled = is;
         if (outEl) outEl.disabled = is;
-        if (thumb) {
-          thumb.setAttribute('aria-busy', is ? 'true' : 'false');
-          thumb.classList.toggle('is-busy', is);
+        if (subBtn) {
+          subBtn.disabled = is;
+          if (is) {
+            subBtn.classList.add('busy');
+            subBtn.innerHTML = '<span class="btn-spinner"></span><span>' + (action === 'IN' ? '簽到送出中…' : '簽退送出中…') + '</span>';
+          } else {
+            subBtn.classList.remove('busy');
+            subBtn.innerHTML = '<span id="btnSubmitText">' + (action === 'IN' ? '確認簽到' : '確認簽退') + '</span>';
+          }
         }
-        if (bar) bar.classList.toggle('is-busy', is);
       }
 
       function styleCheckinActionButtons(){
         const inEl = $('#btnIn');
         const outEl = $('#btnOut');
+        const subBtn = $('#btnSubmitCheckin');
         if (!inEl || !outEl) return;
         inEl.classList.remove('action-selected-in', 'action-unselected');
         outEl.classList.remove('action-selected-out', 'action-unselected', 'secondary');
+        if (subBtn) {
+          subBtn.classList.remove('in', 'out');
+        }
         if (action === 'IN') {
           inEl.classList.add('action-selected-in');
           outEl.classList.add('action-unselected');
+          if (subBtn) subBtn.classList.add('in');
         } else if (action === 'OUT') {
           outEl.classList.add('action-selected-out');
           inEl.classList.add('action-unselected');
-        } else {
-          outEl.classList.add('secondary');
+          if (subBtn) subBtn.classList.add('out');
+        }
+        const subText = $('#btnSubmitText');
+        if (subText && !busy) {
+          subText.textContent = action === 'IN' ? '確認簽到' : '確認簽退';
         }
       }
 
       function getCheckinSelectedEventOpen(){
-        const id = $('#eventSelect').value.trim();
-        if (!id) return null;
-        const list = window.__checkinEventsList || [];
-        const h = list.find(function(e){ return e.eventId === id; });
-        return h ? !!h.isOpen : null;
+        var meta = getSelectedEventMeta();
+        return meta ? !!meta.isOpen : null;
       }
 
       function syncCheckinInteractiveDisabled(){
@@ -316,26 +438,14 @@
         var codeOk = !needCode || getEffectiveCheckinCode().length === 6;
         var gatedCode = !!id && needCode && !codeOk;
         var block = gatedOff || gatedCode;
+
         var inEl = $('#btnIn');
         var outEl = $('#btnOut');
-        var thumb = $('#thumb');
-        var bar = $('#slideBar');
-        var hint = $('#slideHint');
+        var subBtn = $('#btnSubmitCheckin');
         if (inEl) inEl.disabled = block;
         if (outEl) outEl.disabled = block;
-        if (thumb) {
-          thumb.setAttribute('aria-disabled', block ? 'true' : 'false');
-          thumb.tabIndex = block ? -1 : 0;
-          thumb.style.pointerEvents = block ? 'none' : '';
-        }
-        if (bar) {
-          bar.classList.toggle('is-gated', block);
-          bar.setAttribute('aria-disabled', block ? 'true' : 'false');
-        }
-        if (hint) {
-          if (gatedOff) hint.textContent = '活動尚未開放簽到';
-          else if (gatedCode) hint.textContent = '請先輸入 6 位驗證碼';
-          else hint.textContent = '往左滑動確認';
+        if (subBtn) {
+          subBtn.disabled = block || !($('#personSelect').value);
         }
       }
 
@@ -352,18 +462,18 @@
         const open = getCheckinSelectedEventOpen();
         badge.style.display = 'inline-flex';
         if (open) {
-          badge.innerHTML = '<span class="dot ok"></span><span>本活動管理狀態：<strong>開放簽到</strong></span>';
+          badge.innerHTML = '<span class="dot ok"></span><span>活動狀態：<strong>開放簽到中</strong></span>';
         } else {
-          badge.innerHTML = '<span class="dot not"></span><span>本活動管理狀態：<strong>尚未開放簽到</strong></span>';
+          badge.innerHTML = '<span class="dot not"></span><span>活動狀態：<strong>尚未開放簽到</strong></span>';
         }
         syncCheckinInteractiveDisabled();
       }
 
       function setAction(next){
-        action = next;
-        $('#actionText').textContent = next === 'IN' ? '即將簽到' : next === 'OUT' ? '即將簽退' : '尚未選擇動作';
+        action = next || 'IN';
+        $('#actionText').textContent = action === 'IN' ? '即將簽到' : '即將簽退';
         const dot = $('#actionDot');
-        dot.className = 'dot ' + (next === 'IN' ? 'ok' : next === 'OUT' ? 'warn' : '');
+        if (dot) dot.className = 'dot ' + (action === 'IN' ? 'ok' : 'warn');
         styleCheckinActionButtons();
       }
 
@@ -373,10 +483,17 @@
         const qq = norm(q);
         const list = !qq ? ROSTER_FULL.slice() : ROSTER_FULL.filter(function(p){ return norm(p.displayName).indexOf(qq) !== -1; });
         const cur = sel.value;
-        sel.innerHTML = '<option value=\"\">請選擇</option>' + list.map(function(p){
-          return '<option value=\"' + esc(p.personId) + '\">' + esc(p.displayName) + '</option>';
+        sel.innerHTML = '<option value="">請選擇姓名</option>' + list.map(function(p){
+          return '<option value="' + esc(p.personId) + '">' + esc(p.displayName) + '</option>';
         }).join('');
-        if (cur && list.some(function(p){ return p.personId === cur; })) sel.value = cur;
+        if (cur && list.some(function(p){ return p.personId === cur; })) {
+          sel.value = cur;
+        } else if (qq && list.length === 1) {
+          // 當搜尋精準匹配唯一結果時，自動選定
+          sel.value = list[0].personId;
+          void refreshStatus();
+        }
+        syncCheckinInteractiveDisabled();
       }
 
       async function refreshRoster(){
@@ -384,14 +501,14 @@
         const mySeq = ++rosterReqSeq;
         if (!eventId){
           ROSTER_FULL = [];
-          $('#personSelect').innerHTML = '<option value=\"\">請先選擇活動</option>';
+          $('#personSelect').innerHTML = '<option value="">請先選擇活動</option>';
           return;
         }
         const needCode = getSelectedEventRequiresCheckinCode();
         const codeLen = getEffectiveCheckinCode().length;
         if (needCode && codeLen !== 6) {
           ROSTER_FULL = [];
-          $('#personSelect').innerHTML = '<option value=\"\">請先輸入 6 位驗證碼以載入名單</option>';
+          $('#personSelect').innerHTML = '<option value="">請先輸入 6 位驗證碼以載入名單</option>';
           return;
         }
         try {
@@ -402,7 +519,7 @@
         } catch (e) {
           if (mySeq !== rosterReqSeq) return;
           ROSTER_FULL = [];
-          $('#personSelect').innerHTML = '<option value=\"\">名單載入失敗</option>';
+          $('#personSelect').innerHTML = '<option value="">名單載入失敗</option>';
           var msg = formatApiError(e);
           if (isLikelyCheckinCodeAuthError_(msg)) {
             clearCheckinCodeStorage(eventId);
@@ -423,17 +540,18 @@
           const raw = await api('publicListBoardEvents');
           const events = (raw && raw.events) ? raw.events : [];
           window.__checkinEventsList = events;
-          sel.innerHTML = '<option value=\"\">請選擇活動</option>' + events.map(function(e){
+          sel.innerHTML = '<option value="">請選擇活動</option>' + events.map(function(e){
             const label = (e.name || e.eventId);
-            return '<option value=\"' + esc(e.eventId) + '\">' + esc(label) + '</option>';
+            return '<option value="' + esc(e.eventId) + '">' + esc(label) + '</option>';
           }).join('');
+
           if (locked) {
             if (events.some(function(x){ return x.eventId === locked; })) {
               sel.value = locked;
               sel.disabled = true;
               hint.textContent = '已由簽到連結或 QR Code 指定活動。';
             } else {
-              hint.textContent = '連結中的活動不存在、尚未開放簽到（未列入選單）或已停用，請改選下方活動或洽管理員。';
+              hint.textContent = '連結中的活動不存在、尚未開放簽到或已停用，請改選下方活動或洽管理員。';
               sel.disabled = false;
             }
           } else {
@@ -443,9 +561,11 @@
             hint.textContent = events.length ? '請選擇要簽到的活動。' : '尚無活動：請管理員於後台「建立活動」後再試。';
             sel.disabled = false;
           }
+
           loadPersistedCheckinCodeIntoField();
           updateCheckinCodeHintUi();
           updateCheckinGateStatusUi();
+
           if (BOOT && Array.isArray(BOOT.initialRoster) && BOOT.initialRoster.length > 0 && sel.value === BOOT.eventId) {
             ROSTER_FULL = BOOT.initialRoster;
             applyPersonFilter(($('#personSearch').value || '').trim());
@@ -453,8 +573,17 @@
           } else {
             await Promise.all([refreshRoster(), refreshStatus()]);
           }
+
+          // URL 直通或已選活動時，自動聚焦姓名搜尋框（省略點擊鍵盤直接跳出）
+          setTimeout(function(){
+            var ps = $('#personSearch');
+            if (ps) {
+              try { ps.focus(); } catch (_e) {}
+            }
+          }, 150);
+
         } catch (e) {
-          sel.innerHTML = '<option value=\"\">載入失敗</option>';
+          sel.innerHTML = '<option value="">載入失敗</option>';
           hint.textContent = '無法載入活動清單：' + formatApiError(e);
           window.__checkinEventsList = [];
           updateCheckinGateStatusUi();
@@ -470,11 +599,43 @@
           '<div style="margin-top:10px" class="hint">最後時間：<span class="mono">' + esc(lastTime ? fmtTs(lastTime) : '—') + '</span></div>';
       }
 
+      function updatePasswordUi(personMeta){
+        const wrap = $('#personPasswordWrap');
+        const hint = $('#personPasswordHint');
+        const input = $('#personPassword');
+        const btnChange = $('#btnOpenChangePwd');
+        if (!wrap) return;
+
+        if (!personMeta || !personMeta.requirePassword) {
+          wrap.style.display = 'none';
+          if (input) input.value = '';
+          return;
+        }
+
+        wrap.style.display = 'block';
+        if (personMeta.hasPassword) {
+          if (hint) hint.textContent = '此活動已啟用個人密碼，請輸入個人簽到密碼。';
+          if (input) input.placeholder = '請輸入個人簽到密碼';
+          if (btnChange && personMeta.allowChangePassword) {
+            btnChange.style.display = 'inline-block';
+          }
+        } else {
+          if (hint) hint.textContent = '首次簽到：此活動要求個人密碼，請於下方自訂個人密碼（4~50字），將於初次簽到自動綁定。';
+          if (input) input.placeholder = '請自訂個人密碼（初次自動綁定）';
+          if (btnChange) btnChange.style.display = 'none';
+        }
+      }
+
       async function refreshStatus(){
         const eventId = $('#eventSelect').value.trim();
         const personId = $('#personSelect').value;
         const mySeq = ++statusReqSeq;
-        if (!eventId || !personId){ $('#statusBox').textContent = '請先選擇活動與姓名。'; return; }
+        if (!eventId || !personId){
+          $('#statusBox').textContent = '請先選擇活動與姓名。';
+          updatePasswordUi(null);
+          syncCheckinInteractiveDisabled();
+          return;
+        }
         try {
           const s = await api('publicGetPersonStatus', eventId, personId, getCheckinTokenForApi());
           if (mySeq !== statusReqSeq) return;
@@ -482,7 +643,14 @@
             $('#statusBox').textContent = '無法讀取狀態，請重新整理頁面。';
             return;
           }
+          currentPersonMeta = {
+            hasPassword: !!s.hasPassword,
+            requirePassword: !!s.requirePassword,
+            allowChangePassword: !!s.allowChangePassword,
+          };
+          updatePasswordUi(currentPersonMeta);
           renderStatusBox_(s.status, s.statusLabel, s.lastTime);
+          syncCheckinInteractiveDisabled();
         } catch (e) {
           if (mySeq !== statusReqSeq) return;
           var msg = formatApiError(e);
@@ -496,6 +664,68 @@
         }
       }
 
+      var __successTimer = null;
+      function showSuccessModal(displayName, submittedAction, serverTime){
+        const modal = $('#checkinSuccessModal');
+        const nameEl = $('#successAttendeeName');
+        const actionEl = $('#successActionLabel');
+        const timeEl = $('#successServerTime');
+        const btnChangePwd = $('#btnSuccessChangePwd');
+        const progressEl = $('#successProgress');
+        const btnReset = $('#btnSuccessResetNext');
+
+        if (!modal) return;
+
+        if (nameEl) nameEl.textContent = displayName || '夥伴';
+        if (actionEl) actionEl.textContent = submittedAction === 'IN' ? '簽到成功！' : '簽退成功！';
+        if (timeEl) timeEl.textContent = '伺服器時間：' + (serverTime ? fmtTs(serverTime) : '剛剛');
+
+        if (btnChangePwd) {
+          var evtMeta = getSelectedEventMeta();
+          var canChange = evtMeta && evtMeta.allowChangePassword && evtMeta.isOpen;
+          btnChangePwd.style.display = canChange ? 'inline-block' : 'none';
+        }
+
+        modal.classList.add('open');
+        if (progressEl) {
+          progressEl.style.transition = 'none';
+          progressEl.style.width = '100%';
+          setTimeout(function(){
+            progressEl.style.transition = 'width 0.8s linear';
+            progressEl.style.width = '0%';
+          }, 30);
+        }
+
+        if (__successTimer) clearTimeout(__successTimer);
+        __successTimer = setTimeout(function(){
+          closeSuccessModalAndReset();
+        }, 850);
+      }
+
+      function closeSuccessModalAndReset(){
+        if (__successTimer) {
+          clearTimeout(__successTimer);
+          __successTimer = null;
+        }
+        const modal = $('#checkinSuccessModal');
+        if (modal) modal.classList.remove('open');
+
+        // 快速復位供下一位使用
+        const searchInput = $('#personSearch');
+        const personSelect = $('#personSelect');
+        const pwdInput = $('#personPassword');
+        if (searchInput) {
+          searchInput.value = '';
+          applyPersonFilter('');
+          try { searchInput.focus(); } catch (_e) {}
+        }
+        if (personSelect) personSelect.value = '';
+        if (pwdInput) pwdInput.value = '';
+        updatePasswordUi(null);
+        $('#statusBox').textContent = '請先選擇活動與姓名。';
+        syncCheckinInteractiveDisabled();
+      }
+
       async function submit(){
         if (busy) return;
         const eventId = $('#eventSelect').value.trim();
@@ -506,19 +736,44 @@
         if (getSelectedEventRequiresCheckinCode() && getEffectiveCheckinCode().length !== 6) {
           return setToast('請先輸入管理頁或看板 QR 下方顯示的 6 位驗證碼。', { clearMs: 4000 });
         }
+
+        const pwdInput = $('#personPassword');
+        const password = pwdInput ? pwdInput.value.trim() : '';
+        if (currentPersonMeta && currentPersonMeta.requirePassword) {
+          if (!password) {
+            return setToast('此活動要求個人簽到密碼，請填寫密碼欄位。', { error: true, clearMs: 4000 });
+          }
+        }
+
         busy = true;
         setCheckinSubmittingUi(true);
         setToast('送出中…', { clearMs: null });
         const submittedAction = action;
+        const personSelEl = $('#personSelect');
+        const selectedPersonName = personSelEl && personSelEl.selectedOptions[0] ? personSelEl.selectedOptions[0].textContent : '';
+
         try{
-          const res = await api('publicSubmitAttendance', { eventId, personId, action, font: '', token: getCheckinTokenForApi(), clientMeta: { ua:navigator.userAgent } });
+          const res = await api('publicSubmitAttendance', {
+            eventId: eventId,
+            personId: personId,
+            action: action,
+            font: '',
+            token: getCheckinTokenForApi(),
+            password: password,
+            clientMeta: { ua: navigator.userAgent }
+          });
           var st = (res && res.serverTime != null && String(res.serverTime) !== '') ? String(res.serverTime) : '';
           $('#serverTime').textContent = st ? ('伺服器時間 ' + fmtTs(st)) : '';
-          setToast(submittedAction === 'IN' ? '簽到完成' : '簽退完成', { clearMs: 3800 });
-          // 樂觀更新：立即顯示送出結果，避免等待 refreshStatus 的二次來回。
+
+          // 伺服端回傳真確認：立即震動 [40, 30, 40]
+          if (navigator && typeof navigator.vibrate === 'function') {
+            try { navigator.vibrate([40, 30, 40]); } catch (_vibErr) {}
+          }
+
+          // 彈出成功致意綠勾卡片
+          showSuccessModal(selectedPersonName, submittedAction, st);
           renderStatusBox_(submittedAction, submittedAction === 'IN' ? '已簽到' : '已簽退', st);
-          // 背景對齊伺服端，若與本地不同則由非同步結果覆寫。
-          void refreshStatus();
+
         }catch(e){
           var em = formatApiError(e);
           if (isLikelyCheckinCodeAuthError_(em)) {
@@ -537,87 +792,89 @@
         }
       }
 
-      function initSlide(){
-        const bar = $('#slideBar');
-        const thumb = $('#thumb');
-        let dragging = false;
-        let startX = 0;
-        // translateX 採負值；0 為起點（最右），-maxTravel 為最左。
-        let offset = 0;
-        let startOffset = 0;
+      // 變更密碼彈窗邏輯
+      function openChangePasswordModal(){
+        const modal = $('#changePasswordModal');
+        const personSel = $('#personSelect');
+        if (!personSel || !personSel.value) {
+          setToast('請先選擇要變更密碼的人員。', { error: true });
+          return;
+        }
+        const name = personSel.selectedOptions[0] ? personSel.selectedOptions[0].textContent : '';
+        $('#pwdPersonName').value = name;
+        $('#inputOldPwd').value = '';
+        $('#inputNewPwd').value = '';
+        $('#inputNewPwdConfirm').value = '';
+        $('#pwdChangeErr').style.display = 'none';
+        modal.classList.add('open');
+      }
 
-        function maxTravel(){
-          var w = bar.clientWidth;
-          var tw = thumb.clientWidth;
-          return Math.max(0, w - tw - 12);
+      function closeChangePasswordModal(){
+        const modal = $('#changePasswordModal');
+        if (modal) modal.classList.remove('open');
+      }
+
+      async function submitChangePassword(){
+        const eventId = $('#eventSelect').value.trim();
+        const personId = $('#personSelect').value;
+        const oldPwd = $('#inputOldPwd').value.trim();
+        const newPwd = $('#inputNewPwd').value.trim();
+        const confirmPwd = $('#inputNewPwdConfirm').value.trim();
+        const errEl = $('#pwdChangeErr');
+        const btn = $('#btnSubmitChangePwd');
+
+        if (!newPwd) {
+          errEl.textContent = '請輸入新密碼。';
+          errEl.style.display = 'block';
+          return;
+        }
+        if (newPwd.length < 4 || newPwd.length > 50) {
+          errEl.textContent = '新密碼長度須介於 4 至 50 字元。';
+          errEl.style.display = 'block';
+          return;
+        }
+        if (newPwd !== confirmPwd) {
+          errEl.textContent = '兩次輸入的新密碼不一致。';
+          errEl.style.display = 'block';
+          return;
         }
 
-        function applyOffset(px){
-          var max = maxTravel();
-          if (max <= 0) { offset = 0; thumb.style.transform = 'translate3d(0,0,0)'; return 0; }
-          var v = Math.min(0, Math.max(-max, px));
-          offset = v;
-          thumb.style.transform = 'translate3d(' + v + 'px,0,0)';
-          return v;
-        }
-        function reset(){ applyOffset(0); }
-
-        if (typeof ResizeObserver !== 'undefined' && bar) {
+        errEl.style.display = 'none';
+        withButtonBusy(btn, async function(){
           try {
-            var ro = new ResizeObserver(function(){ if (!dragging) reset(); });
-            ro.observe(bar);
-          } catch (_e) {}
-        }
-        window.addEventListener('resize', function(){ if (!dragging) reset(); });
-
-        function onDown(ev){
-          if (busy) return;
-          dragging = true;
-          thumb.classList.add('is-dragging');
-          startX = (ev.touches ? ev.touches[0].clientX : ev.clientX);
-          startOffset = offset;
-          ev.preventDefault();
-        }
-        async function onMove(ev){
-          if (!dragging) return;
-          const x = (ev.touches ? ev.touches[0].clientX : ev.clientX);
-          const dx = x - startX;
-          const v = applyOffset(startOffset + dx);
-          var max = maxTravel();
-          if (max > 0 && v <= -max + 2){
-            dragging = false;
-            thumb.classList.remove('is-dragging');
-            await submit();
-            // 提交後給 0.25s 視覺停留再回彈。
-            setTimeout(reset, 250);
+            await api('publicChangePassword', {
+              eventId: eventId,
+              personId: personId,
+              oldPassword: oldPwd,
+              newPassword: newPwd,
+              token: getCheckinTokenForApi()
+            });
+            closeChangePasswordModal();
+            setToast('個人密碼已成功變更！');
+            if ($('#personPassword')) $('#personPassword').value = newPwd;
+            await refreshStatus();
+          } catch (e) {
+            errEl.textContent = formatApiError(e);
+            errEl.style.display = 'block';
           }
-          ev.preventDefault();
-        }
-        function onUp(){
-          if (!dragging) return;
-          dragging = false;
-          thumb.classList.remove('is-dragging');
-          // 未滑到底則彈回。
-          reset();
-        }
-
-        thumb.addEventListener('keydown', function(ev){
-          if (busy) return;
-          if (ev.key === 'Enter' || ev.key === ' ') {
-            ev.preventDefault();
-            void submit();
-          }
-        });
-        thumb.addEventListener('mousedown', onDown);
-        thumb.addEventListener('touchstart', onDown, { passive:false });
-        window.addEventListener('mousemove', onMove, { passive:false });
-        window.addEventListener('touchmove', onMove, { passive:false });
-        window.addEventListener('mouseup', onUp);
-        window.addEventListener('touchend', onUp);
+        }, { busyText: '變更中…' });
       }
 
       $('#btnIn').addEventListener('click', () => setAction('IN'));
       $('#btnOut').addEventListener('click', () => setAction('OUT'));
+      $('#btnSubmitCheckin').addEventListener('click', () => submit());
+
+      $('#btnSuccessResetNext').addEventListener('click', () => closeSuccessModalAndReset());
+      $('#btnSuccessChangePwd').addEventListener('click', () => {
+        closeSuccessModalAndReset();
+        openChangePasswordModal();
+      });
+
+      $('#btnOpenChangePwd').addEventListener('click', openChangePasswordModal);
+      $('#btnCloseChangePwd').addEventListener('click', closeChangePasswordModal);
+      $('#btnCancelChangePwd').addEventListener('click', closeChangePasswordModal);
+      $('#btnSubmitChangePwd').addEventListener('click', submitChangePassword);
+
       $('#eventSelect').addEventListener('change', async () => {
         $('#personSearch').value = '';
         loadPersistedCheckinCodeIntoField();
@@ -629,6 +886,7 @@
         } catch (_e) {}
         syncCheckinInteractiveDisabled();
       });
+
       var checkinCodeEl = $('#checkinCode');
       if (checkinCodeEl) {
         var debouncedReloadAfterCode = debounce(function(){
@@ -646,17 +904,36 @@
           debouncedReloadAfterCode();
         });
       }
+
       $('#personSearch').addEventListener('input', debounce(function(){
         applyPersonFilter(($('#personSearch').value || '').trim());
       }, 180));
-      $('#personSelect').addEventListener('change', function(){ void refreshStatus(); });
 
-      setAction(null);
-      initSlide();
+      $('#personSearch').addEventListener('keydown', function(ev){
+        if (ev.key === 'Enter') {
+          ev.preventDefault();
+          var sel = $('#personSelect');
+          if (sel && sel.value) {
+            submit();
+          }
+        }
+      });
+
+      $('#personPassword').addEventListener('keydown', function(ev){
+        if (ev.key === 'Enter') {
+          ev.preventDefault();
+          submit();
+        }
+      });
+
+      $('#personSelect').addEventListener('change', function(){
+        void refreshStatus();
+      });
+
+      setAction('IN');
       bootstrapCheckinFromGasUrl_(function(){
         void loadEventsCheckin();
       });
     </script>
   </body>
 </html>
-

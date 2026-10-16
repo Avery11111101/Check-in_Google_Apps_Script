@@ -44,8 +44,32 @@ function appendCheckinTokenToLegacy_(eventId, oldToken) {
   upsertConfig_(eventCheckinTokenLegacyKey_(eid), JSON.stringify(list));
 }
 
+function eventCheckinTokenCacheKey_(eventId) {
+  return 'evt_chk_token_' + String(eventId || '').trim();
+}
+
+function invalidateEventCheckinTokenCache_(eventId) {
+  const eid = String(eventId || '').trim();
+  if (!eid) return;
+  try {
+    CacheService.getScriptCache().remove(eventCheckinTokenCacheKey_(eid));
+  } catch (_e) {}
+}
+
 function getEventCheckinToken_(eventId) {
-  return String(getConfig_(eventCheckinTokenKey_(eventId), '') || '').trim();
+  const eid = String(eventId || '').trim();
+  if (!eid) return '';
+  try {
+    const cached = CacheService.getScriptCache().get(eventCheckinTokenCacheKey_(eid));
+    if (cached !== null && cached !== undefined) return String(cached).trim();
+  } catch (_e) {}
+  const token = String(getConfig_(eventCheckinTokenKey_(eid), '') || '').trim();
+  if (token) {
+    try {
+      CacheService.getScriptCache().put(eventCheckinTokenCacheKey_(eid), token, 60);
+    } catch (_e) {}
+  }
+  return token;
 }
 
 function getEventCheckinTokenPrev_(eventId) {
@@ -82,7 +106,7 @@ function generateCheckinCode_() {
 
 /**
  * 若已逾輪替週期則在鎖內更新：prev ← 舊 current，current ← 新值。
- * 可能連續輪替數次以追上長時間未觸發之進度。
+ * 採用數學除法跳步計算，消除 while 迴圈防止死循環與配額耗盡。
  */
 function ensureCheckinTokenRotated_(eventId) {
   const eid = String(eventId || '').trim();
@@ -91,43 +115,54 @@ function ensureCheckinTokenRotated_(eventId) {
   const periodSec = getEventCheckinRotateSeconds_(eid);
   if (periodSec <= 0) return;
 
+  const periodMs = periodSec * 1000;
+  const atRaw = String(getConfig_(eventCheckinTokenRotatedAtKey_(eid), '') || '').trim();
+  let rotatedAt = Number(atRaw);
+  const now = Date.now();
+  if (isFinite(rotatedAt) && rotatedAt > 0 && (now - rotatedAt < periodMs)) {
+    return;
+  }
+
   const lock = LockService.getScriptLock();
   let acquired = false;
   try {
-    acquired = lock.tryLock(30000);
+    acquired = lock.tryLock(15000);
     if (!acquired) return;
 
     let current = String(getConfig_(eventCheckinTokenKey_(eid), '') || '').trim();
     if (!current) return;
 
-    const atRaw = String(getConfig_(eventCheckinTokenRotatedAtKey_(eid), '') || '').trim();
-    let rotatedAt = Number(atRaw);
+    const atRawLock = String(getConfig_(eventCheckinTokenRotatedAtKey_(eid), '') || '').trim();
+    rotatedAt = Number(atRawLock);
     if (!isFinite(rotatedAt) || rotatedAt <= 0) {
       rotatedAt = Date.now();
       upsertConfig_(eventCheckinTokenRotatedAtKey_(eid), String(rotatedAt));
       return;
     }
 
-    const periodMs = periodSec * 1000;
-    let now = Date.now();
+    const lockNow = Date.now();
+    const elapsed = lockNow - rotatedAt;
+    if (elapsed < periodMs) return;
 
-    while (now - rotatedAt >= periodMs) {
-      const oldCur = current;
-      let next = generateCheckinCode_();
-      let guard = 0;
-      while (next === oldCur && guard < 20) {
-        next = generateCheckinCode_();
-        guard++;
-      }
-      current = next;
-      upsertConfig_(eventCheckinTokenPrevKey_(eid), oldCur);
-      appendCheckinTokenToLegacy_(eid, oldCur);
-      upsertConfig_(eventCheckinTokenKey_(eid), current);
-      rotatedAt += periodMs;
-      upsertConfig_(eventCheckinTokenRotatedAtKey_(eid), String(rotatedAt));
-      invalidateBoardStateCache_(eid);
-      now = Date.now();
+    const steps = Math.floor(elapsed / periodMs);
+    const nextRotatedAt = rotatedAt + steps * periodMs;
+
+    const oldCur = current;
+    let next = generateCheckinCode_();
+    let guard = 0;
+    while (next === oldCur && guard < 20) {
+      next = generateCheckinCode_();
+      guard++;
     }
+
+    current = next;
+    upsertConfig_(eventCheckinTokenPrevKey_(eid), oldCur);
+    appendCheckinTokenToLegacy_(eid, oldCur);
+    upsertConfig_(eventCheckinTokenKey_(eid), current);
+    upsertConfig_(eventCheckinTokenRotatedAtKey_(eid), String(nextRotatedAt));
+
+    invalidateEventCheckinTokenCache_(eid);
+    invalidateBoardStateCache_(eid);
   } finally {
     if (acquired) lock.releaseLock();
   }
@@ -357,4 +392,6 @@ function clearEventCheckinTokenRotationAux_(eventId) {
   deleteConfig_(eventCheckinTokenRotateSecondsKey_(eid));
   deleteConfig_(eventCheckinTokenRotatedAtKey_(eid));
   deleteConfig_(eventCheckinTokenLegacyKey_(eid));
+  invalidateEventCheckinTokenCache_(eid);
 }
+
