@@ -79,4 +79,27 @@ describe('Tier 1: [R2] Tiered Fast Store Roster CRUD', () => {
       assert.strictEqual(found, undefined, 'Deleted person should no longer exist in roster');
     }
   });
+
+  test('adminDeleteEvent removes event and clears fast store cache', () => {
+    const eventRes = context.adminCreateEvent({ name: '待刪除活動' });
+    const eventId = eventRes.eventId;
+    assert.ok(eventId, 'Event created');
+
+    // Add member to fast store
+    context.adminCreateRoster({
+      eventId,
+      groupId: '',
+      displayName: '活動成員',
+    });
+    assert.strictEqual(context.adminListRoster(eventId).length, 1);
+
+    // Delete event
+    const delRes = context.adminDeleteEvent({ eventId });
+    assert.ok(delRes && delRes.ok, 'adminDeleteEvent should return ok: true');
+
+    // Verify event is removed from event list
+    const listRes = context.adminListEvents();
+    const found = (listRes.events || []).find(e => e.eventId === eventId);
+    assert.strictEqual(found, undefined, 'Deleted event should no longer exist in adminListEvents');
+  });
 });

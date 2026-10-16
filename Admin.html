@@ -128,9 +128,10 @@
         <div class="grid">
           <div class="card">
             <h2>活動 / 場次</h2>
-            <div class="row">
+            <div class="row" style="flex-wrap:wrap;gap:8px;align-items:center">
               <button type="button" id="btnOpenCreateEventModal">建立新活動</button>
               <button type="button" id="btnRefresh" class="secondary">重新整理</button>
+              <button type="button" id="btnDeleteEvent" class="danger" style="margin-left:auto" disabled title="刪除當前選取的活動">刪除此活動</button>
             </div>
             <div class="field">
               <label for="eventSelect">選擇活動</label>
@@ -732,6 +733,7 @@
 
           updateAdminEventOpenUi();
           syncEventPasswordSettingsUi();
+          if ($('#btnDeleteEvent')) $('#btnDeleteEvent').disabled = !$('#eventSelect').value;
           return true;
         }catch(e){
           const msg = formatApiError(e);
@@ -740,6 +742,7 @@
           $('#eventSelect').innerHTML = '<option value="">載入失敗</option>';
           window.__events = [];
           updateAdminEventOpenUi();
+          if ($('#btnDeleteEvent')) $('#btnDeleteEvent').disabled = true;
           return false;
         }
       }
@@ -791,11 +794,18 @@
       async function setOpen(isOpen){
         const eventId = $('#eventSelect').value;
         if (!eventId) return setToast('請先選擇活動。');
-        await api('adminSetEventOpen', { eventId, isOpen });
-        const hit = (window.__events || []).find(e => e.eventId === eventId);
-        if (hit) hit.isOpen = isOpen;
-        updateAdminEventOpenUi();
-        setToast(isOpen ? '已開放簽到' : '已關閉簽到');
+        const btn = isOpen ? $('#btnOpen') : $('#btnClose');
+        await withButtonBusy(btn, async () => {
+          try {
+            await api('adminSetEventOpen', { eventId, isOpen });
+            const hit = (window.__events || []).find(e => e.eventId === eventId);
+            if (hit) hit.isOpen = isOpen;
+            updateAdminEventOpenUi();
+            setToast(isOpen ? '已開放簽到' : '已關閉簽到');
+          } catch (e) {
+            setToast(formatApiError(e), { error: true });
+          }
+        }, { busyText: '設定中…' });
       }
 
       function getSelectedEventId(){
@@ -929,14 +939,20 @@
             $all('[data-legacy-del-group]').forEach(function(btn){
               btn.addEventListener('click', async function(){
                 var groupId = btn.getAttribute('data-legacy-del-group');
+                var eventId = getSelectedEventId();
                 if (!confirm('確定刪除分組？（需先移除綁定人員）')) return;
-                try {
-                  await api('adminDeleteGroup', { groupId: groupId });
-                  await refreshGroupRoster();
-                  setToast('已刪除分組');
-                } catch (err) {
-                  setToast(formatApiError(err), { error: true });
-                }
+                var row = btn.closest('.groupRow') || btn.parentElement;
+                if (row) row.classList.add('is-busy');
+                await withButtonBusy(btn, async function(){
+                  try {
+                    await api('adminDeleteGroup', { groupId: groupId, eventId: eventId });
+                    await refreshGroupRoster();
+                    setToast('已刪除分組');
+                  } catch (err) {
+                    if (row) row.classList.remove('is-busy');
+                    setToast(formatApiError(err), { error: true });
+                  }
+                }, { busyText: '刪除中…' });
               });
             });
           }
@@ -996,14 +1012,20 @@
             var groupId = btn.getAttribute('data-del-group');
             var groupHit = (window.__groups || []).find(function(g){ return g.groupId === groupId; });
             var gName = groupHit ? (groupHit.name || groupHit.groupName || groupHit.category) : '此分類';
+            var eventId = getSelectedEventId();
             if (!confirm('確定刪除「' + gName + '」分類？（需無子分類且無綁定成員）')) return;
-            try {
-              await api('adminDeleteGroup', { groupId: groupId });
-              await refreshGroupRoster();
-              setToast('已成功刪除分類：' + gName);
-            } catch (err) {
-              setToast(formatApiError(err), { error: true });
-            }
+            var folderNode = btn.closest('.treeFolderNode') || btn.parentElement;
+            if (folderNode) folderNode.classList.add('is-busy');
+            await withButtonBusy(btn, async function(){
+              try {
+                await api('adminDeleteGroup', { groupId: groupId, eventId: eventId });
+                await refreshGroupRoster();
+                setToast('已成功刪除分類：' + gName);
+              } catch (err) {
+                if (folderNode) folderNode.classList.remove('is-busy');
+                setToast(formatApiError(err), { error: true });
+              }
+            }, { busyText: '刪除中…' });
           });
         });
 
@@ -1032,14 +1054,20 @@
             var pId = btn.getAttribute('data-del-p');
             var hit = (window.__roster || []).find(function(x){ return x.personId === pId; });
             var name = hit ? hit.displayName : '此人員';
+            var eventId = getSelectedEventId();
             if (!confirm('確定要刪除「' + name + '」？此操作無法還原。')) return;
-            try {
-              await api('adminDeletePerson', { personId: pId });
-              await refreshGroupRoster();
-              setToast('已刪除人員 ' + name);
-            } catch (err) {
-              setToast(formatApiError(err), { error: true });
-            }
+            var personRow = btn.closest('.treePersonRow') || btn.parentElement;
+            if (personRow) personRow.classList.add('is-busy');
+            await withButtonBusy(btn, async function(){
+              try {
+                await api('adminDeletePerson', { personId: pId, eventId: eventId });
+                await refreshGroupRoster();
+                setToast('已刪除人員 ' + name);
+              } catch (err) {
+                if (personRow) personRow.classList.remove('is-busy');
+                setToast(formatApiError(err), { error: true });
+              }
+            }, { busyText: '刪除中…' });
           });
         });
       }
@@ -1369,6 +1397,29 @@
         }, { busyText: '建立中…' });
       });
 
+      // 刪除活動
+      const btnDelEvent = $('#btnDeleteEvent');
+      if (btnDelEvent) {
+        btnDelEvent.addEventListener('click', async () => {
+          const eventId = getSelectedEventId();
+          if (!eventId) return setToast('請先選擇活動。');
+          const hit = (window.__events || []).find(e => e.eventId === eventId);
+          const name = hit ? hit.name : '此活動';
+          if (!confirm(`確定要刪除「${name}」？\n（此操作將移除此活動與名冊快取，歷史簽到紀錄與 Drive 檔案將保留）`)) return;
+          await withButtonBusy(btnDelEvent, async () => {
+            try {
+              await api('adminDeleteEvent', { eventId });
+              setToast(`已成功刪除活動：${name}`);
+              $('#eventSelect').value = '';
+              await loadEvents();
+              $('#eventSelect').dispatchEvent(new Event('change'));
+            } catch (err) {
+              setToast(formatApiError(err), { error: true });
+            }
+          }, { busyText: '刪除中…' });
+        });
+      }
+
       // 儲存活動密碼設定
       $('#btnSaveEventPwdSettings').addEventListener('click', async () => {
         const eventId = getSelectedEventId();
@@ -1633,6 +1684,7 @@
         const mySeq = ++adminEventReqSeq;
         clearBoardPairDisplay();
         const eventId = $('#eventSelect').value;
+        if ($('#btnDeleteEvent')) $('#btnDeleteEvent').disabled = !eventId;
         if (!eventId) {
           $('#qrLink').value = '';
           $('#eventFolderUrl').value = '';
@@ -1671,10 +1723,17 @@
         if (!eventId) return setToast('請先選擇活動。');
         const category = $('#grpCategory').value.trim();
         const groupName = $('#grpName').value.trim();
-        await api('adminCreateGroup', { eventId, category, groupName, sort: 0 });
-        $('#grpName').value = '';
-        await refreshGroupRoster();
-        setToast('已新增分組');
+        const btn = $('#btnAddGroup');
+        await withButtonBusy(btn, async () => {
+          try {
+            await api('adminCreateGroup', { eventId, category, groupName, sort: 0 });
+            $('#grpName').value = '';
+            await refreshGroupRoster();
+            setToast('已新增分組');
+          } catch (e) {
+            setToast(formatApiError(e), { error: true });
+          }
+        }, { busyText: '新增中…' });
       });
 
       $('#btnAddPerson').addEventListener('click', async () => {
@@ -1684,11 +1743,18 @@
         if (!displayName) return setToast('請填寫姓名。');
         const groupId = $('#personGroup').value || '';
         const password = ($('#personPwdInit').value || '').trim();
-        await api('adminCreateRoster', { eventId, groupId, displayName, password, sort: 0 });
-        $('#personName').value = '';
-        $('#personPwdInit').value = '';
-        await refreshGroupRoster();
-        setToast('已新增人員');
+        const btn = $('#btnAddPerson');
+        await withButtonBusy(btn, async () => {
+          try {
+            await api('adminCreateRoster', { eventId, groupId, displayName, password, sort: 0 });
+            $('#personName').value = '';
+            $('#personPwdInit').value = '';
+            await refreshGroupRoster();
+            setToast('已新增人員');
+          } catch (e) {
+            setToast(formatApiError(e), { error: true });
+          }
+        }, { busyText: '新增中…' });
       });
 
       /* R3 DEACTIVATED: 附件系統已停用，註解事件監聽避免 null pointer 異常

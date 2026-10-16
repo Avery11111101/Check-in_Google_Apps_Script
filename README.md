@@ -114,6 +114,17 @@ node tests/run-all.js
 
 ## 📝 更新日誌 (Changelog)
 
+### v1.0.2 (2026-10-17) - 活動刪除功能、名冊刪除快取修復與全介面即時載入反饋
+- **[活動管理] 新增刪除活動功能 (`adminDeleteEvent`)**：
+  - 後台頂部控制列新增「刪除此活動」危險操作按鈕，點擊提供二次防護確認對話框。
+  - 後端安全清除該活動之 `SHEETS.EVENTS` 記錄、Fast Store (Tier 1 & Tier 2) 快取、看板 session 與輪替 token 快取，並安全保留歷史簽到紀錄與 Drive 檔案。
+- **[名冊快取修復] 根除刪除成員/分組快取延遲與失敗 Bug**：
+  - 修復前端 `Admin.html` 在呼叫 `adminDeletePerson` 與 `adminDeleteGroup` 時遺漏傳遞 `eventId` 的嚴重缺陷。
+  - 徹底免除後端退化至 Google 試算表慢速掃描（耗時 2~4 秒且未同步成員會回報「找不到活動」），直接走 Fast Store 毫秒級快取刪除。
+- **[即時互動] 全面導入即時載入鎖定（Immediate Loading）與視覺反灰**：
+  - 刪除成員、刪除分類、新增成員、新增分組、切換開放簽到狀態全面套用 `withButtonBusy`（顯示「刪除中…」/「新增中…」/「設定中…」並立即禁用防重複點擊）。
+  - 成員列與分類節點於執行非同步作業時即時套用全域 `.is-busy`（視覺半透明反灰與 `pointer-events: none`），提供零延遲操作回饋。
+
 ### v1.0.1 (2026-10-16) - 後端儲存分片、樹狀防環與簽到同步缺陷修復
 - **[儲存] Fast Store 8KB UTF-8 安全分片**：重構分片切分邏輯，保證每片 UTF-8 位元組長度絕不超過 8,000 bytes，徹底消除 300+ 中文名冊寫入 PropertiesService 時衝破 9KB 配額之上限崩潰。
 - **[儲存] Drive 溢位安全讀取與健康度校正**：`fastStoreGet` 支援 `getContentAsString` 與 `getBlob().getDataAsString('UTF-8')`，讀取失敗時記錄日誌絕不盲目覆寫清空快取；容量健康度計算全面改採真實 UTF-8 位元組累計。

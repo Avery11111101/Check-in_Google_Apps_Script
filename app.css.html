@@ -326,6 +326,12 @@
   }
   .slideBar.is-busy{ opacity:.92; }
   .slideBar.is-gated{ opacity:.62; pointer-events:none; }
+  .is-busy {
+    opacity: .55 !important;
+    cursor: wait !important;
+    pointer-events: none !important;
+    transition: opacity .15s ease;
+  }
   .thumb:active{ cursor:grabbing; }
 
   /* board */

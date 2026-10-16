@@ -222,6 +222,49 @@ function adminSetEventOpen(payload) {
   throw new Error('找不到活動。');
 }
 
+/**
+ * 刪除指定活動（保留簽到紀錄與 Drive 檔案，清除活動紀錄與 Fast Store 快取）
+ * @param {Object|string} payloadOrEventId
+ * @returns {{ok: boolean}}
+ */
+function adminDeleteEvent(payloadOrEventId) {
+  requireAdmin_();
+  let eventId = '';
+  if (payloadOrEventId && typeof payloadOrEventId === 'object') {
+    eventId = String(payloadOrEventId.eventId || payloadOrEventId.id || '').trim();
+  } else if (typeof payloadOrEventId === 'string') {
+    eventId = payloadOrEventId.trim();
+  }
+  if (!eventId) throw new Error('缺少活動 ID (eventId)。');
+
+  const ss = getDb_();
+  const shEvents = ss.getSheetByName(SHEETS.EVENTS);
+  if (!shEvents) throw new Error('找不到活動工作表。');
+
+  // 1. 從 EVENTS 工作表移除
+  const rows = shEvents.getDataRange().getValues();
+  let targetRowIdx = -1;
+  for (let i = 1; i < rows.length; i++) {
+    if (String(rows[i][0]).trim() === eventId) {
+      targetRowIdx = i + 1; // 試算表列號從 1 開始
+      break;
+    }
+  }
+  if (targetRowIdx === -1) {
+    throw new Error('找不到該活動。');
+  }
+  shEvents.deleteRow(targetRowIdx);
+
+  // 2. 清除 Fast Store 快取 (包含 PropertiesService 與 Drive 溢位快取檔)
+  fastStoreClear(eventId);
+
+  // 3. 清除看板 Session 與 QR Code 輪替密鑰快取
+  clearEventCheckinTokenRotationAux_(eventId);
+  invalidateBoardStateCache_(eventId);
+
+  return { ok: true };
+}
+
 /** 管理員讀取現場簽到驗證碼與輪替設定（用於 QR 旁顯示、簽到頁輸入驗證）。 */
 function adminGetEventSecurity(eventId) {
   requireAdmin_();
