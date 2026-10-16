@@ -38,67 +38,62 @@
         </div>
       </div>
 
-      <div class="grid">
-        <div class="card">
-          <h2>簽到資訊</h2>
-          <div class="field">
-            <label for="eventSelect">活動名稱</label>
-            <select id="eventSelect">
-              <option value="">載入中…</option>
-            </select>
-            <div id="eventHint" class="hint"></div>
-          </div>
-
-          <div class="field">
-            <label for="personSearch">姓名（搜尋或下拉選擇）</label>
-            <input type="search" id="personSearch" placeholder="請輸入姓名關鍵字…" autocomplete="off" autofocus>
-            <select id="personSelect" style="margin-top:8px">
-              <option value="">請先選擇活動</option>
-            </select>
-          </div>
-
-          <div class="field" id="checkinCodeWrap">
-            <label for="checkinCode">現場簽到驗證碼（6 位數字）</label>
-            <input type="text" id="checkinCode" class="mono" inputmode="numeric" maxlength="6" placeholder="請輸入 6 位驗證碼" autocomplete="one-time-code" style="max-width:220px;letter-spacing:0.12em;font-size:1.05rem">
-            <div id="checkinCodeHint" class="hint">若活動有設定驗證碼則必填；未設定之活動可留空。</div>
-          </div>
-
-          <!-- 動態個人密碼輸入框（若活動啟用 requirePassword） -->
-          <div class="field" id="personPasswordWrap" style="display:none">
-            <div style="display:flex;justify-content:space-between;align-items:center">
-              <label for="personPassword" id="personPasswordLabel">個人簽到密碼</label>
-              <button type="button" id="btnOpenChangePwd" class="secondary" style="display:none;padding:2px 8px;font-size:12px;min-height:28px">變更密碼</button>
-            </div>
-            <input type="password" id="personPassword" placeholder="請輸入個人密碼" autocomplete="current-password" style="max-width:280px">
-            <div id="personPasswordHint" class="hint"></div>
-          </div>
-
-          <div class="field">
-            <label>簽到動作</label>
-            <div class="row checkinActionRow" style="margin-bottom:12px">
-              <button type="button" id="btnIn" style="flex:1">簽到</button>
-              <button type="button" id="btnOut" class="secondary" style="flex:1">簽退</button>
-            </div>
-            <div id="checkinGateStatus" class="pill openStatusPill" style="display:none" role="status" aria-live="polite"></div>
-          </div>
-
-          <!-- 行動端大按鈕確認區 -->
-          <div style="margin-top:16px">
-            <button type="button" id="btnSubmitCheckin" class="btnCheckinSubmit in">
-              <span id="btnSubmitText">確認簽到</span>
-            </button>
-            <div style="display:flex;justify-content:space-between;align-items:center;margin-top:8px">
-              <div class="pill" style="font-size:12px"><span class="dot ok" id="actionDot"></span><span id="actionText">即將簽到</span></div>
-              <div class="badge mono" id="serverTime" style="font-size:11px"></div>
-            </div>
-            <div class="toast" id="toast" role="status" aria-live="polite" style="margin-top:8px"></div>
-          </div>
+      <div class="card" style="margin-top:14px">
+        <h2>簽到資訊</h2>
+        <div class="field">
+          <label for="eventSelect">活動名稱</label>
+          <select id="eventSelect">
+            <option value="">載入中…</option>
+          </select>
+          <div id="eventHint" class="hint"></div>
         </div>
 
-        <div class="card">
-          <h2>目前狀態</h2>
-          <div id="statusBox" class="hint">請先選擇活動與姓名。</div>
-          <div style="margin-top:14px" class="hint">如顯示「尚未開放」，請洽現場管理員開啟活動簽到。</div>
+        <div class="field">
+          <div style="display:flex;justify-content:space-between;align-items:center">
+            <label for="personSearch" style="margin-bottom:0">姓名（搜尋或下拉選擇）</label>
+            <div id="statusBadge" class="pill" style="display:none;font-size:12px;padding:3px 8px"><span class="dot" id="statusDot"></span><span id="statusLabelText">未簽到</span></div>
+          </div>
+          <input type="search" id="personSearch" placeholder="請輸入姓名關鍵字…" autocomplete="off" autofocus>
+          <select id="personSelect" style="margin-top:8px">
+            <option value="">請先選擇活動</option>
+          </select>
+        </div>
+
+        <div class="field" id="checkinCodeWrap">
+          <label for="checkinCode">現場簽到驗證碼（6 位數字）</label>
+          <input type="text" id="checkinCode" class="mono" inputmode="numeric" maxlength="6" placeholder="請輸入 6 位驗證碼" autocomplete="one-time-code" style="max-width:220px;letter-spacing:0.12em;font-size:1.05rem">
+          <div id="checkinCodeHint" class="hint">若活動有設定驗證碼則必填；未設定之活動可留空。</div>
+        </div>
+
+        <!-- 動態個人密碼輸入框（若活動啟用 requirePassword） -->
+        <div class="field" id="personPasswordWrap" style="display:none">
+          <div style="display:flex;justify-content:space-between;align-items:center">
+            <label for="personPassword" id="personPasswordLabel">個人簽到密碼</label>
+            <button type="button" id="btnOpenChangePwd" class="secondary" style="display:none;padding:2px 8px;font-size:12px;min-height:28px">變更密碼</button>
+          </div>
+          <input type="password" id="personPassword" placeholder="請輸入個人密碼" autocomplete="current-password" style="max-width:280px">
+          <div id="personPasswordHint" class="hint"></div>
+        </div>
+
+        <div class="field">
+          <label>簽到動作</label>
+          <div class="row checkinActionRow" style="margin-bottom:12px">
+            <button type="button" id="btnIn" style="flex:1">簽到</button>
+            <button type="button" id="btnOut" class="secondary" style="flex:1">簽退</button>
+          </div>
+          <div id="checkinGateStatus" class="pill openStatusPill" style="display:none" role="status" aria-live="polite"></div>
+        </div>
+
+        <!-- 行動端大按鈕確認區 -->
+        <div style="margin-top:16px">
+          <button type="button" id="btnSubmitCheckin" class="btnCheckinSubmit in">
+            <span id="btnSubmitText">確認簽到</span>
+          </button>
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-top:8px">
+            <div class="pill" style="font-size:12px"><span class="dot ok" id="actionDot"></span><span id="actionText">即將簽到</span></div>
+            <div class="badge mono" id="serverTime" style="font-size:11px"></div>
+          </div>
+          <div class="toast" id="toast" role="status" aria-live="polite" style="margin-top:8px"></div>
         </div>
       </div>
     </div>
@@ -492,6 +487,9 @@
           // 當搜尋精準匹配唯一結果時，自動選定
           sel.value = list[0].personId;
           void refreshStatus();
+        } else {
+          var badge = $('#statusBadge');
+          if (badge) badge.style.display = 'none';
         }
         syncCheckinInteractiveDisabled();
       }
@@ -590,13 +588,40 @@
         }
       }
 
+      function fmtTimeOnly_(ts){
+        if (!ts) return '';
+        var d = new Date(ts);
+        if (isNaN(d.getTime())) return '';
+        var h = String(d.getHours()).padStart(2, '0');
+        var m = String(d.getMinutes()).padStart(2, '0');
+        return h + ':' + m;
+      }
+
       function renderStatusBox_(status, statusLabel, lastTime){
+        var badge = $('#statusBadge');
+        var dot = $('#statusDot');
+        var text = $('#statusLabelText');
+        var sel = $('#personSelect');
+        var personId = sel ? sel.value : '';
+        if (!badge || !dot || !text) return;
+        if (!personId) {
+          badge.style.display = 'none';
+          return;
+        }
         var s = String(status || '').toUpperCase();
         var dotCls = s === 'IN' ? 'ok' : (s === 'OUT' ? 'bad' : '');
-        var label = String(statusLabel || (s === 'IN' ? '已簽到' : s === 'OUT' ? '已簽退' : '未簽到'));
-        $('#statusBox').innerHTML =
-          '<div class="pill"><span class="dot ' + dotCls + '"></span><span>' + esc(label) + '</span></div>' +
-          '<div style="margin-top:10px" class="hint">最後時間：<span class="mono">' + esc(lastTime ? fmtTs(lastTime) : '—') + '</span></div>';
+        dot.className = 'dot' + (dotCls ? (' ' + dotCls) : '');
+        var timeStr = fmtTimeOnly_(lastTime);
+        var label = '';
+        if (s === 'IN') {
+          label = '已簽到' + (timeStr ? (' ' + timeStr) : '');
+        } else if (s === 'OUT') {
+          label = '已簽退' + (timeStr ? (' ' + timeStr) : '');
+        } else {
+          label = '未簽到';
+        }
+        text.textContent = label;
+        badge.style.display = 'inline-flex';
       }
 
       function updatePasswordUi(personMeta){
@@ -630,8 +655,9 @@
         const eventId = $('#eventSelect').value.trim();
         const personId = $('#personSelect').value;
         const mySeq = ++statusReqSeq;
+        const badge = $('#statusBadge');
         if (!eventId || !personId){
-          $('#statusBox').textContent = '請先選擇活動與姓名。';
+          if (badge) badge.style.display = 'none';
           updatePasswordUi(null);
           syncCheckinInteractiveDisabled();
           return;
@@ -640,7 +666,7 @@
           const s = await api('publicGetPersonStatus', eventId, personId, getCheckinTokenForApi());
           if (mySeq !== statusReqSeq) return;
           if (!s || typeof s !== 'object') {
-            $('#statusBox').textContent = '無法讀取狀態，請重新整理頁面。';
+            if (badge) badge.style.display = 'none';
             return;
           }
           currentPersonMeta = {
@@ -653,6 +679,7 @@
           syncCheckinInteractiveDisabled();
         } catch (e) {
           if (mySeq !== statusReqSeq) return;
+          if (badge) badge.style.display = 'none';
           var msg = formatApiError(e);
           if (isLikelyCheckinCodeAuthError_(msg)) {
             clearCheckinCodeStorage(eventId);
@@ -660,7 +687,7 @@
             if (inp2) inp2.value = '';
             syncCheckinInteractiveDisabled();
           }
-          $('#statusBox').innerHTML = '<div class="banner-error" style="display:block">' + esc(msg) + '</div>';
+          setToast(msg, { error: true });
         }
       }
 
@@ -722,7 +749,8 @@
         if (personSelect) personSelect.value = '';
         if (pwdInput) pwdInput.value = '';
         updatePasswordUi(null);
-        $('#statusBox').textContent = '請先選擇活動與姓名。';
+        var badge = $('#statusBadge');
+        if (badge) badge.style.display = 'none';
         syncCheckinInteractiveDisabled();
       }
 

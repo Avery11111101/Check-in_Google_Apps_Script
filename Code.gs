@@ -116,17 +116,24 @@ function doGet(e) {
         '</body></html>';
       return HtmlService.createHtmlOutput(body)
         .setTitle('簽到系統｜管理')
+        .addMetaTag('viewport', 'width=device-width, initial-scale=1')
         .setXFrameOptionsMode(HtmlService.XFrameOptionsMode.DEFAULT);
     }
     const t = HtmlService.createTemplateFromFile('Admin');
     t.bootstrap = getBootstrap_({ page, eventId, checkinToken: '' });
-    return t.evaluate().setTitle('簽到系統｜管理').setXFrameOptionsMode(HtmlService.XFrameOptionsMode.DEFAULT);
+    return t.evaluate()
+      .setTitle('簽到系統｜管理')
+      .addMetaTag('viewport', 'width=device-width, initial-scale=1')
+      .setXFrameOptionsMode(HtmlService.XFrameOptionsMode.DEFAULT);
   }
 
   if (page === APP.PAGES.BOARD) {
     const t = HtmlService.createTemplateFromFile('Board');
     t.bootstrap = getBootstrap_({ page, eventId, checkinToken: '' });
-    return t.evaluate().setTitle('簽到系統｜看板').setXFrameOptionsMode(HtmlService.XFrameOptionsMode.ALLOWALL);
+    return t.evaluate()
+      .setTitle('簽到系統｜看板')
+      .addMetaTag('viewport', 'width=device-width, initial-scale=1')
+      .setXFrameOptionsMode(HtmlService.XFrameOptionsMode.ALLOWALL);
   }
 
   const t = HtmlService.createTemplateFromFile('Checkin');
@@ -141,7 +148,10 @@ function doGet(e) {
     }
   }
   t.bootstrap = boot;
-  return t.evaluate().setTitle('簽到系統｜簽到').setXFrameOptionsMode(HtmlService.XFrameOptionsMode.ALLOWALL);
+  return t.evaluate()
+    .setTitle('簽到系統｜簽到')
+    .addMetaTag('viewport', 'width=device-width, initial-scale=1')
+    .setXFrameOptionsMode(HtmlService.XFrameOptionsMode.ALLOWALL);
 }
 
 function include(filename) {

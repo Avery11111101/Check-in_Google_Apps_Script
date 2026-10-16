@@ -101,11 +101,11 @@ node tests/run-all.js
 ```
 
 ### 測試階層架構說明
-測試套件共分為 4 大階層，涵蓋 19 個測試套件、49 項獨立測試：
+測試套件共分為 4 大階層，涵蓋 20 個測試套件、52 項獨立測試：
 
 | 測試階層 | 測試目錄 | 涵蓋重點 |
 |---|---|---|
-| **Tier 1: 功能覆蓋與靜態完整性** | `tests/tier1-features/` | 語法完整性、`.claspignore` 部署隔離、R1 樹狀模型、R2 快取 CRUD、R3 附件安全樁、R5 Checkbox 樣式規範、R6 經典設計 Token |
+| **Tier 1: 功能覆蓋與靜態完整性** | `tests/tier1-features/` | 語法完整性、`.claspignore` 部署隔離、R1 樹狀模型、R2 快取 CRUD、R3 附件安全樁、R5 Checkbox 樣式規範、R6 經典設計 Token、手機視圖與狀態徽章 |
 | **Tier 2: 邊界與極端狀況** | `tests/tier2-boundary/` | Properties 8KB 分片切片邊界、350KB Drive 溢位門檻觸發、4 層以上深層階層樹 (處>科>組>小隊)、特殊字元與 UTF-8 密碼雜湊防偽 |
 | **Tier 3: 跨功能互動** | `tests/tier3-cross/` | Fast Store 0 次 Sheet RPC 驗證、`adminSyncToSheets` 批次同步、跨節點人員動態調動、密碼保護與現場 6 位驗證碼簽到流程 |
 | **Tier 4: 真實應用情境** | `tests/tier4-application/` | 100+ 人員名冊高負載模擬、資料夾更名路徑級聯更新、儲存容量健康度動態計算、全螢幕看板響應式饋送 |
@@ -113,6 +113,12 @@ node tests/run-all.js
 ---
 
 ## 📝 更新日誌 (Changelog)
+
+### v1.0.2 (2026-10-17) - 手機視圖縮放修正與簽到狀態徽章重構
+- **[視圖] Code.gs 全域 Viewport 標籤注入**：在 `doGet` 的各個 `HtmlOutput` 回傳處（包含 Admin, Board, Checkin 與登入/錯誤提示頁面）全面補齊 `.addMetaTag('viewport', 'width=device-width, initial-scale=1')`，徹底解決 Google Apps Script 頂層 IFRAME 缺乏行動端 Viewport 宣告導致手機瀏覽被強制以電腦版極小縮放顯示之根本問題。
+- **[排版] 簽到頁面單卡片化與寬度舒展**：移除簽到頁面原先的多餘右側卡片，結構簡化為清爽單卡片容器，並配置 70% 展開寬度（max-width: 960px，手機端自適應 100% 滿版），全域加入 `overflow-x: hidden` 防止左右滑動破版。
+- **[狀態] 個人簽到狀態整合至姓名列**：將個人簽到狀態（狀態燈號與最後簽到時間）收整至「姓名」欄位標題右側之徽章（`#statusBadge`），未選擇姓名時隱藏，選中姓名後即時呈現 `● 已簽到 HH:mm`、`● 已簽退 HH:mm` 或 `● 未簽到`，大幅釋放垂直視野。
+- **[測試] 補充 Tier 1 行動端與狀態徽章單元測試**：新增 `08_mobile_status_view.test.js`，包含 Viewport meta tag、狀態徽章與 CSS 寬度規則驗證，全量測試達 52 項 100% 通過。
 
 ### v1.0.1 (2026-10-16) - 後端儲存分片、樹狀防環與簽到同步缺陷修復
 - **[儲存] Fast Store 8KB UTF-8 安全分片**：重構分片切分邏輯，保證每片 UTF-8 位元組長度絕不超過 8,000 bytes，徹底消除 300+ 中文名冊寫入 PropertiesService 時衝破 9KB 配額之上限崩潰。
