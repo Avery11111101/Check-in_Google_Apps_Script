@@ -1,3 +1,51 @@
+/**
+ * ============================================================================
+ * [ATTACHMENT SYSTEM DEACTIVATED / 附件系統已停用]
+ * 依專案規範 R3，為節省系統配額與載入開銷，本系統所有附件上傳與讀取功能全面停用。
+ * 以下提供安全樁 (Safe Stubs)，確保任何現存前端呼叫不會產生未定義例外或執行期中斷。
+ * ============================================================================
+ */
+
+/**
+ * 安全樁：取得每日附件清單（一律回傳空陣列，防止前端 Promise.all 或 .map 報錯）
+ * @param {string} eventId
+ * @param {string} [date]
+ * @returns {Array} 空陣列
+ */
+function adminListDailyAttachments(eventId, date) {
+  return [];
+}
+
+/**
+ * 安全樁：上傳每日附件（安全停用回傳，不執行 Drive 上傳與 Sheets 寫入）
+ * @param {Object} payload
+ * @returns {{success: boolean, ok: boolean, disabled: boolean, message: string}}
+ */
+function adminUploadDailyAttachment(payload) {
+  return {
+    success: false,
+    ok: false,
+    disabled: true,
+    message: '附件功能已停用',
+  };
+}
+
+/**
+ * 安全樁：刪除每日附件（安全樁回傳）
+ * @param {Object} payload
+ * @returns {{ok: boolean, disabled: boolean}}
+ */
+function adminDeleteDailyAttachment(payload) {
+  return {
+    ok: true,
+    disabled: true,
+  };
+}
+
+/*
+----------------------------------------------------------------------------
+[以下為原 AttachmentService.gs 完整邏輯備份 - 已完整註解，避免配額與開銷]
+----------------------------------------------------------------------------
 var ATTACH_UPLOAD_MAX_BYTES_ = 4 * 1024 * 1024;
 var ATTACH_ALLOWED_MIME_ = {
   'image/jpeg': true,
@@ -18,7 +66,7 @@ function assertAttachmentUploadAllowed_(mimeType, base64String) {
   }
 }
 
-function adminUploadDailyAttachment(payload) {
+function adminUploadDailyAttachmentOriginal_(payload) {
   requireAdmin_();
   const lock = LockService.getScriptLock();
   lock.waitLock(15000);
@@ -60,7 +108,7 @@ function adminUploadDailyAttachment(payload) {
   }
 }
 
-function adminListDailyAttachments(eventId) {
+function adminListDailyAttachmentsOriginal_(eventId) {
   requireAdmin_();
   const ss = getDb_();
   const sh = ss.getSheetByName(SHEETS.ATTACH);
@@ -82,7 +130,7 @@ function adminListDailyAttachments(eventId) {
   return out.sort((a, b) => (a.date || '').localeCompare(b.date || '') || String(b.createdAt).localeCompare(String(a.createdAt)));
 }
 
-function adminDeleteDailyAttachment(payload) {
+function adminDeleteDailyAttachmentOriginal_(payload) {
   requireAdmin_();
   const lock = LockService.getScriptLock();
   lock.waitLock(15000);
@@ -128,4 +176,5 @@ function getEventDriveFolder_(eventId) {
   }
   throw new Error('找不到活動。');
 }
-
+----------------------------------------------------------------------------
+*/

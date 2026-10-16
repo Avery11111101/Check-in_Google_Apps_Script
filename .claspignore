@@ -1,0 +1,12 @@
+# Deployment Isolation for clasp
+# Prevents testing, tooling, metadata and documentation from syncing to Google Apps Script cloud
+
+tests/**
+**/*.test.js
+package.json
+package-lock.json
+.agents/**
+.git/**
+.gitignore
+*.md
+LICENSE

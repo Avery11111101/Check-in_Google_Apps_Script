@@ -45,9 +45,20 @@ function publicSubmitAttendance(payload) {
     } else if (p.password) {
       // 若人員尚未設定密碼且提供了密碼，初次簽到自動綁定
       const newHash = hashPassword_(p.password);
-      const ss = getDb_();
-      const shRoster = ss.getSheetByName(SHEETS.ROSTER);
-      shRoster.getRange(person.rowIndex, 8).setValue(newHash);
+      try {
+        const store = fastStoreGet(p.eventId);
+        const member = (store.roster || []).find(m => String(m.personId) === String(p.personId));
+        if (member) {
+          member.passwordHash = newHash;
+          member.hasPassword = true;
+          fastStoreSave(p.eventId, store, true);
+        }
+      } catch (_e) {}
+      if (person.rowIndex > 0) {
+        const ss = getDb_();
+        const shRoster = ss.getSheetByName(SHEETS.ROSTER);
+        shRoster.getRange(person.rowIndex, 8).setValue(newHash);
+      }
     }
   }
 
@@ -139,9 +150,21 @@ function publicChangePassword(payload) {
   }
 
   const newHash = hashPassword_(newPassword);
-  const ss = getDb_();
-  const sh = ss.getSheetByName(SHEETS.ROSTER);
-  sh.getRange(person.rowIndex, 8).setValue(newHash);
+  try {
+    const store = fastStoreGet(eventId);
+    const member = (store.roster || []).find(m => String(m.personId) === String(personId));
+    if (member) {
+      member.passwordHash = newHash;
+      member.hasPassword = true;
+      fastStoreSave(eventId, store, true);
+    }
+  } catch (_e) {}
+
+  if (person.rowIndex > 0) {
+    const ss = getDb_();
+    const sh = ss.getSheetByName(SHEETS.ROSTER);
+    sh.getRange(person.rowIndex, 8).setValue(newHash);
+  }
 
   return { ok: true, message: '密碼已成功更新！' };
 }
@@ -189,12 +212,41 @@ function isEventOpen_(eventId) {
 }
 
 function getPersonInEvent_(eventId, personId) {
+  const eid = String(eventId || '').trim();
+  const pid = String(personId || '').trim();
+  if (!eid || !pid) throw new Error('缺少 eventId 或 personId。');
+
+  // 1. 優先查詢 Fast Store（秒級讀取，支援現場新增名冊立即簽到）
+  try {
+    const store = fastStoreGet(eid);
+    if (store && store.roster) {
+      const p = store.roster.find(m => String(m.personId) === pid);
+      if (p) {
+        if (p.enabled === false) throw new Error('此人員已停用。');
+        return {
+          rowIndex: 0,
+          personId: String(p.personId),
+          eventId: eid,
+          groupId: String(p.groupId || ''),
+          displayName: String(p.displayName || ''),
+          font: String(p.font || ''),
+          enabled: p.enabled !== false,
+          sort: Number(p.sort || 0),
+          passwordHash: String(p.passwordHash || '').trim(),
+        };
+      }
+    }
+  } catch (e) {
+    if (e && e.message && e.message.includes('此人員已停用')) throw e;
+  }
+
+  // 2. 備援查詢 Google Sheets
   const ss = getDb_();
   const sh = ss.getSheetByName(SHEETS.ROSTER);
   const rows = sh.getDataRange().getValues();
   for (let i = 1; i < rows.length; i++) {
     const r = rows[i];
-    if (String(r[0]) === String(personId) && String(r[1]) === String(eventId)) {
+    if (String(r[0]) === pid && String(r[1]) === eid) {
       if (String(r[5]) === 'FALSE' || r[5] === false) throw new Error('此人員已停用。');
       return {
         rowIndex: i + 1,

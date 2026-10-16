@@ -1,0 +1,14 @@
+{
+  "name": "check-in-google-apps-script",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Google Apps Script 簽到系統 - 零外部相依自動化測試套件與重構台架",
+  "scripts": {
+    "test": "node --test \"tests/**/*.test.js\"",
+    "test:tier1": "node --test \"tests/tier1-features/**/*.test.js\"",
+    "test:tier2": "node --test \"tests/tier2-boundary/**/*.test.js\"",
+    "test:tier3": "node --test \"tests/tier3-cross/**/*.test.js\"",
+    "test:tier4": "node --test \"tests/tier4-application/**/*.test.js\"",
+    "test:all": "node tests/run-all.js"
+  }
+}

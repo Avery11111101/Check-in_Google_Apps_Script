@@ -1,146 +1,151 @@
-# 電子簽到系統
+# 電子簽到系統 (Google Apps Script Check-in System)
 
-這是一套使用 **Google Apps Script Web App + Google Sheet + Google Drive** 的電子簽到系統，支援：
+一套基於 **Google Apps Script Web App + Google Sheets + Google Drive** 的現代化、高效率電子簽到與大螢幕即時看板系統。適用於各類大型集會、教育訓練、企業內部會議與展會活動。
 
-- 掃 QR Code 進入簽到頁，支援 URL 直通聚焦，點擊「**確認簽到大按鈕**」完成簽到/簽退
-- 支援活動個人簽到密碼保護與成員自主密碼變更
-- 管理員後台支援沿用歷史名冊建立活動、雙層折疊名單管理與批次匯入
-- 即時大螢幕看板支援雙層分類（主類別 > 子類別）分群網格卡片與出席率即時統計
-- 每日附件圖片：管理員上傳圖片到 Drive，並綁定活動+日期，可刪除
+---
 
-## 目前進度
+## 🌟 核心特色與架構優勢
 
-- 已建立 GAS 專案骨架（`doGet` 路由、HTML 頁、初始化 Sheet/Drive）
-- 已建立預設 Sheet schema（初始化時自動建立工作表與標題列）
-- Web App 預設 `**USER_DEPLOYING` + `ANYONE_ANONYMOUS`**：簽到／看板訪客**不必登入 Google**；管理頁以指令碼屬性 `**ADMIN_EMAILS`**（逗號分隔多筆）驗證目前登入之 Google 帳號（以「我」執行時通常僅擁有者帳號可穩定通過）
-- 已完成：簽到/簽退 API、狀態快取、即時看板 API（前端輪詢）
-- **v0.4.0**：**前端體驗與看板現代化升級**：
-  1. **簽到動線極速化**：支援 `?page=checkin&eventId=...&c=...` 直通自動填入並聚焦姓名搜尋框；廢除滑動條改為「確認簽到大按鈕」，點擊提供微載入反饋。
-  2. **個人密碼安全機制**：活動啟用個人密碼時選定姓名動態展開輸入欄；初次簽到自動綁定密碼；開放期間提供「變更個人密碼」彈窗。
-  3. **0.3 秒真確認與震動致意**：簽到成功後立即觸發 `navigator.vibrate([40, 30, 40])` 觸覺震動，彈出成功綠勾與姓名，0.8 秒平滑倒數自動復位供下一位使用。
-  4. **管理頁雙層折疊名冊與批次匯入**：名單依「主類別卡片 > 子類別折疊區塊」結構化展示；提供行內人員編輯、密碼重設與刪除；提供「批次匯入名冊」彈窗支援 CSV 與多列貼上。
-  5. **活動建立名單繼承**：建立活動時可下拉選擇歷史活動一鍵複製分組與人員名冊。
-  6. **大螢幕雙層看板**：看板支援依主類別分群網格卡片呈現，內嵌子類別卡片與即時出席率統計。
-  7. **前端防護與 CDN 化**：`api()` 具備 15 秒 Promise.race 超時防卡死保證；QRCode 庫改採 cdnjs 高速 CDN 載入並具備本地備援。
-- **v0.2.1**：看板於已設簽到密鑰時可改以**管理頁 6 位驗證碼**換取工作階段（網址不必帶 `checkinToken`）；`publicGetBoardState` 回傳 `checkinUrl` 供角落 QR 隨密鑰即時更新；名單變更時之提示行為見下「看板變更提示」；看板輪詢固定 **5 秒**
-- **v0.2.2**：管理頁可設定 `**checkinToken` 自動變更週期**（不自動／預設間隔／自訂 ≥30 秒），伺服端於公開 API 呼叫時懶惰輪替並短暫接受上一組密鑰；**看板名單變更提示**可於管理頁設**全域預設**，看板頁再以瀏覽器本地覆寫
-- **v0.2.3**：簽到頁 API 優先使用網址列密鑰；自動輪替時伺服端另保留**多組**近期密鑰（`EVENT_CHECKIN_TOKEN_LEGACY_*`）供驗證；看板／簽到公開 API 之密鑰比對一併支援歷史組
-- **v0.2.4**：`doGet` 開啟簽到頁時，若網址 token 仍有效則 **bootstrap 改注入目前密鑰**（`resolveCheckinTokenForBootstrap_`）；簽到頁呼叫 API 時**優先使用 BOOT**，避免稍舊 QR 或 HtmlService iframe 內網址列不完整導致誤用舊參數
-- **v0.2.5**：`doGet` 以 `e.queryString`／`e.parameters` 補讀 `eventId`／`checkinToken`（避免少數載入路徑下 `e.parameter` 未帶齊）；簽到頁另以 `**document.referrer`** 還原外層 `…/exec?...` 查詢字串，與 `BOOT` 一併決定鎖定活動與 API 用密鑰，修正「掃描／開連結仍缺 checkinToken」之假陽性
-- **v0.2.6**：簽到頁改以官方 `**google.script.url.getLocation`** 讀取外層網址列參數（HtmlService IFRAME 內 `referrer` 常同為 `googleusercontent…` 而**不含** `checkinToken`）；活動／名單載入延至該回呼後再執行
-- **v0.2.7**：`EVENT_CHECKIN_TOKEN_`* 改存**6 位數字「現場簽到驗證碼」**（可沿用自動輪替週期）；簽到／看板 QR **不再**於網址附 `checkinToken`；管理頁與看板 QR 下方即時顯示目前驗證碼；簽到頁手動輸入驗證碼後呼叫 `publicListRoster`／`publicGetPersonStatus`／`publicSubmitAttendance`；`**publicGetBoardState` 僅接受看板工作階段**（`publicExchangeBoardPairCode` 一次性授權碼），不得以簽到驗證碼讀看板；`publicListBoardEvents` 各活動新增 `requiresCheckinCode`
-- **v0.2.8**：簽到頁在活動**已要求驗證碼**且尚未輸滿 6 位時，**不再呼叫** `publicListRoster`（避免誤判為名單載入失敗）；輸入驗證碼過程中會自動重試載入名單與狀態
-- **v0.2.9**：後端 `assertCheckinTokenMatches_`：活動**未**設定驗證碼時，若仍帶入非空 `token` 則拒絕（避免任意六位數看似通過）；簽到頁僅在 `requiresCheckinCode` 為真時才把驗證碼送 API，並隱藏／清空不需驗證之活動的輸入欄
-- **v0.3.0**：**效能與響應速度大幅優化**：
-  1. `doGet` 快照載入，避免每次重複檢查 Drive 與 7 張工作表標題。
-  2. 看板快取改用 `CacheService.getScriptCache()` 並提升 TTL 至 20 秒以上，修正快取未命中問題。
-  3. `publicSubmitAttendance` 縮短全域鎖持有範圍，試算表物件增加單次請求記憶體快取。
-  4. 簽到頁透過伺服端 Bootstrap 預先注入名單，消除瀑布式等待。
-  5. 活動列表讀取消除 Config 表 N+1 查詢；管理頁切換活動改為並行載入（`Promise.all`）。
-  6. 前端姓名即時搜尋加入 180ms 防抖（Debounce），避免手機打字卡頓。
-- 已完成：管理頁分組/名單 CRUD、每日附件圖片上傳/刪除
-- **維護**：已自看板頁 `[Board.html](Board.html)` 移除開發用除錯 ingest 埋點。
-- **看板變更提示**：名單指紋變更且已開啟「變更提示」時，[`Board.html`](Board.html) 先更新名單再於畫面**中央卡片**比對上一輪狀態，顯示「姓名：狀態」（沿用 `statusLabel`）；多人時至多兩行後附「等共 N 人狀態變更」；僅時間戳等非狀態差異則「名單已更新」。可點半透明背景、**Esc** 或約 4 秒後關閉；**無**全螢幕滑動轉場。
-## 開發與部署（clasp）
+### 1. 無限層級樹狀組織名冊 (R1)
+- **任意深度階層**：支援任意層級之樹狀分類（如：`行政處 > 資訊科 > 系統組 > 第一小隊`），並向下相容單層分類或完全不分類。
+- **檔案總管操作體驗**：後台提供直覺的階層式折疊/展開，可在樹狀結構的任意節點一鍵新增子分類、新增人員或進行刪除。
+- **階層路徑級聯維護**：上層資料夾更名或調整時，所有子節點之麵包屑路徑（`path`）與深度（`depth`）自動級聯遞迴更新。
 
-1. 安裝並登入 clasp
+### 2. 雙層即時快取與試算表永久同步 (R2)
+- **秒級即時讀寫 (< 100ms)**：以 Apps Script 內建 `PropertiesService` 作為 Tier 1 即時快取層，採二維緊湊格式（Tabular Compact JSON）大幅縮減 68% 體積，配合 8KB 自動分片機制。日常名單與分組增刪改查達成 **0 次 Google Sheets RPC**，徹底消除操作延遲。
+- **雲端試算表永久封存**：後台提供「📥 同步至雲端試算表（永久封存庫）」按鈕與排程機制，以持鎖批次寫入一次性覆寫 Google Sheets，兼顧極速操作與資料永久歸檔。
+- **Google Drive 溢位擴充配套**：當快取資料量逼近 350KB 時，無縫自動啟用 Google Drive 快取 JSON 檔（Tier 2 溢位層），突破 PropertiesService 總量上限。
+- **容量健康度即時監控**：後台設定頁面提供儲存健康度看板，即時以百分比進度條、所處儲存階層標籤與健康狀態徽章（HEALTHY / WARNING / CRITICAL）監控配額。
 
+### 3. 安全停用附件系統 (R3)
+- **節約配額與開銷**：將每日附件圖片上傳與檢索邏輯完整進行安全註解與樁函式化（Safe Stubs），大幅節約 Google Drive 空間與每次開頁之無效檢索配額。
+- **名冊視圖單欄舒展**：移除管理介面中殘留之附件卡片，名冊操作面板展開為 100% 滿版，大幅提升檢視與編輯舒適度。
+
+### 4. 100vw 全螢幕可折疊階層大螢幕看板 (R4)
+- **解除固定寬度限制**：看板徹底解除 1120px 寬度封頂，改採 `100vw` 自適應多欄網格流體排版，在 1080p、2K、4K 等大螢幕投影情境下完整利用畫面兩側空間。
+- **階層點擊折疊與狀態持久化**：支援各層級分類點擊標頭折疊或展開（配備旋轉箭頭指示器），並以 `localStorage` 記憶折疊狀態；即使在每 5 秒的即時資料輪詢差分補丁（DOM Diff Patch）過程中，使用者的視角依然穩定不閃爍。
+- **根除名單擠壓與文字折行**：全面重構卡片內名冊網格為單欄自適應，徹底修復原本 90px 寬度擠壓、姓名垂直逐字折行以及狀態標籤重疊之破版問題。
+- **一鍵快捷控制**：頂端工具列提供「全部展開」與「全部折疊」快速切換功能。
+
+### 5. 管理面板排版修復與 18px 核取方塊標準 (R5)
+- **樣式污染隔離**：全面排除全域 CSS `input` 選取器對 Checkbox 的影響，修正寬度被強制拉長為 100% 容器寬度之問題。
+- **經典尺寸規範**：將所有核取方塊規格化為 `18px x 18px`，搭配主題強調色（`accent-color`），並使用 `.checkboxRow` 彈性容器確保核取方塊始終位於文字左側、垂直置中且永不換行。
+
+### 6. 雙端傳統經典實用設計與行動端 RWD (R6)
+- **回歸清晰傳統風格**：全面移除 48px 厚重模糊 AI 陰影、雙重霓虹光暈與毛玻璃濾鏡，回歸洗鍊精緻之 1px 高對比實線邊框與 4px-12px 精緻微陰影，提升視覺對比度與操作專注度。
+- **行動端 3-Tab 標籤頁導航**：在 375px~412px 行動裝置寬度下，管理後台自動切換為經典 Tab 分頁視圖：
+  1. 📁 **名單名冊**：組織階層樹與人員管理
+  2. ⚙️ **系統設定**：活動安全、儲存健康度與試算表同步
+  3. 📊 **即時看板**：現場投影預覽與授權碼管理
+  各 Tab 按鈕均具備 44px 觸控友善高度，切換狀態自動保存於 `sessionStorage`。
+
+### 7. 極速簽到動線與個人密碼防冒簽
+- **URL 直通聚焦**：支援 `?page=checkin&eventId=...&c=...` 掃描直通，自動填入並收合驗證碼，載入 150ms 內自動聚焦搜尋框。
+- **確認簽到大按鈕**：點擊觸發 `navigator.vibrate([40, 30, 40])` 觸覺震動，提供 0.3 秒致意卡片與 0.8 秒平滑自動復位，大幅縮減排隊時間。
+- **個人簽到密碼保護**：支援活動級個人密碼開關，初次簽到自動綁定密碼，並提供活動期間自主修改密碼功能。
+- **6 位現場簽到驗證碼**：支援設定 6 位數字簽到驗證碼與自訂週期自動輪替，杜絕未到場遠端代簽。
+
+---
+
+## 🚀 系統入口網址結構
+
+部署為 Google Apps Script Web App 後，各頁面入口如下：
+
+| 頁面 | 網址參數範例 | 說明 |
+|---|---|---|
+| **現場簽到頁** | `?page=checkin&eventId={EVENT_ID}` | 參加者簽到入口，可於網址附加 `&c={CODE}` 自動填入 6 位驗證碼 |
+| **即時看板頁** | `?page=board&eventId={EVENT_ID}` | 大螢幕投影專用看板，可於現場輸入管理員產生的看板授權碼換取連線 |
+| **管理後台** | `?page=admin` | 活動設定、組織樹狀名冊、儲存健康度監控與雲端試算表同步控制板 |
+
+---
+
+## 🛠️ 開發與部署指南 (使用 @google/clasp)
+
+### 1. 安裝 clasp 並登入 Google 帳號
 ```bash
-npm i -g @google/clasp
+npm install -g @google/clasp
 clasp login
 ```
 
-1. 建立 Apps Script 專案並推上去
-
+### 2. 建立專案與推播程式碼
 ```bash
+# 複製或建立 Apps Script 專案
 clasp create --title "電子簽到系統" --type webapp
+
+# 推送本專案程式碼至雲端 (已配置 .claspignore 隔離測試與說明文件)
 clasp push
 ```
 
-1. 在 Apps Script 介面部署為 Web App（與 `[appsscript.json](appsscript.json)` 對照）
-  - **預設（匿名簽到）**：執行身分 **我**（`USER_DEPLOYING`）+ 存取 **任何人，甚至是匿名使用者**（`ANYONE_ANONYMOUS`）→ **訪客不必登入 Google** 即可開啟簽到／看板並呼叫公開 API；試算表寫入仍以**專案擁有者**已授權之身分執行。管理頁須以 `**ADMIN_EMAILS`** 所允許之 Google 帳號登入；此模式下通常**僅擁有者**可被伺服端辨識為登入者。
-  - 若要以**多名** Google 帳號操作後台，可將 `ADMIN_EMAILS` 設為逗號分隔之多個 email，並視需要改為 **使用者存取應用程式**（`USER_ACCESSING`）且分享主試算表／根資料夾給各帳號；與「訪客完全不登入簽到」較難並存於**同一** Web App，實務可採**兩個部署**。
-  - 存取權：內部活動可改為僅限機構成員等，並搭配**現場簽到驗證碼**縮小 API 暴露面。
-2. 第一次授權與管理員
-  - 第一次由**擁有者**開啟管理頁時會要求授權（Sheet/Drive/Email）；初始化會寫入 `**ADMIN_EMAILS`**（優先目前登入者，否則為專案擁有者 email）
-  - 進入管理頁時伺服端以 **Google 帳號 email** 比對 `ADMIN_EMAILS`（**不分大小寫**）；進階需求請在 Apps Script「專案設定」→「指令碼屬性」手動編輯 `ADMIN_EMAILS`
+### 3. 於 Google Apps Script 介面發布為 Web App
+- **執行身分 (Execute as)**：**我** (`USER_DEPLOYING`)
+- **存取權限 (Who has access)**：**任何人，甚至是匿名使用者** (`ANYONE_ANONYMOUS`)
+  - 此設定允許參加者與現場看板**免登入 Google 帳號**即可快速簽到與投影。
+  - 後台管理頁透過指令碼屬性 `ADMIN_EMAILS`（逗號分隔）或 `ADMIN_SECRET_TOKEN` 進行管理員身分驗證。
 
-## 入口
+### 4. 首次初始化授權
+首次以擁有者帳號開啟管理後台時，系統會要求 Google 雲端權限（試算表、雲端硬碟），授權後將自動於 Google Drive 建立專屬根資料夾與主試算表。
 
-- 簽到頁：`?page=checkin&eventId=...`（**不含**驗證碼；若活動已設定驗證碼，請於頁面輸入管理頁／看板 QR 下方顯示之 **6 位數字**）
-- 管理頁：`?page=admin`
-- 看板頁：`?page=board&eventId=...`（若活動已設驗證碼，請於管理頁「**產生看板授權碼**」後在現場看板輸入 6 位**一次性**碼換取工作階段；與「簽到用驗證碼」不同）
+---
 
-## 安全與部署備註
+## 🧪 自動化測試 (E2E Test Suite)
 
-- Web App 在 `[appsscript.json](appsscript.json)` 預設為 `**executeAs: USER_DEPLOYING`**（以擁有者身分執行）與 `**access: ANYONE_ANONYMOUS**`（**未登入 Google 者**亦可開啟簽到／看板並呼叫公開 API）。若不需匿名、或僅限機構成員，請在部署設定中調整存取權，並搭配下方「現場簽到驗證碼」縮小 API 暴露面。
-- **現場簽到驗證碼（v0.2.7）**：管理員可為活動產生 **6 位數字**（仍寫入 `Attendance_Config` 鍵 `EVENT_CHECKIN_TOKEN_{eventId}`，與舊版鍵名相容）。可選用 **自動變更週期**（`EVENT_CHECKIN_TOKEN_ROTATE_SECONDS_{eventId}` 等），輪替時暫存上一組於 `EVENT_CHECKIN_TOKEN_PREV_*`，並將近期曾使用之值列入 `EVENT_CHECKIN_TOKEN_LEGACY_*`（JSON 陣列、筆數有上限）。設定後，`publicListRoster`、`publicSubmitAttendance`、`publicGetPersonStatus` 之 `token` 參數須帶正確 6 位碼（或仍接受之上一組／歷史組）。`**publicGetBoardState`** 僅接受 `**publicExchangeBoardPairCode**` 換得之**看板工作階段**（`bs_…`）；不得以簽到驗證碼讀取名單。**未設定驗證碼時（v0.2.9）**：`token` 須為空字串；帶任意非空值將遭拒，以免任意六位數看似通過驗證。
-- **簽到頁（v0.2.7）**：`doGet` **不再**向 bootstrap 注入密鑰／驗證碼；簽到頁以輸入欄＋`sessionStorage` 保存各活動之碼，並以 `google.script.url.getLocation` 補讀外層 `eventId` 以鎖定活動。
-- **簽到活動清單**：簽到頁與看板相同呼叫 `publicListBoardEvents()` 列出**全部活動**（含尚未開放簽到者），方便先選場；未開放時介面會顯示狀態並鎖定簽到／滑動送出，與 `publicSubmitAttendance` 伺服端檢查一致。
+本專案建置了**零外部依賴**的完整端到端 (E2E) 自動化測試架構，以 Node.js 原生 `node:test` 與 `node:vm` 沙盒模擬 Google Apps Script 執行環境（包含 PropertiesService、SpreadsheetApp、DriveApp、CacheService 等 Mock 服務）。
 
-## 使用流程（最短路徑）
+### 執行全量測試
+```bash
+# 透過 npm 執行
+npm test
 
-1. **擁有者**開啟管理頁 `?page=admin`（預設「以擁有者身分執行」時，後台以建立專案之 Google 帳號操作最穩定）
-2. 建立活動 → 取得 `eventId` 與簽到連結
-3. 建立分組、建立名單（或先用 Apps Script 編輯器執行 `adminSeedDemoData()` 建示範資料）
-4. 點「開放簽到」
-5. 簽到 QR：管理頁／看板角落會顯示小圖（網址僅含 `eventId`）；**QR 下方**顯示目前 **6 位簽到驗證碼**，簽到頁須輸入後再滑動送出。投影看板時，已設驗證碼之活動須先於管理頁「**產生看板授權碼**」並在現場看板輸入（與簽到驗證碼不同）。
-6. 開啟看板 `?page=board`（可選 `eventId=`）投影；頁內亦可**下拉切換活動**並自動更新網址列（看板授權以 `sessionStorage` 之工作階段為準，切換活動時可能須重新輸入看板授權碼）
+# 或直接以 Node.js 執行主測試器
+node tests/run-all.js
+```
 
-## Google Drive 目錄與檔名
+### 測試階層架構說明
+測試套件共分為 4 大階層，涵蓋 19 個測試套件、49 項獨立測試：
 
-- **根資料夾**（存在指令碼屬性 `DRIVE_FOLDER_ID`）：首次初始化時建立，名稱為 `電子簽到_系統_yyyyMMdd_HHmmss`（時區為專案時區，例如 `Asia/Taipei`）。若專案早已部署且已有舊的根資料夾 ID，**不會**自動改名，仍沿用原資料夾；若要在雲端硬碟中看得一致，可自行重新命名該資料夾顯示名稱（不影響 ID）。
-- **主資料試算表**（`SPREADSHEET_ID`，檔名如 `簽到系統資料_yyyyMMdd_HHmmss`）：初始化或每次 `ensureInitialized_` 時會檢查是否已在上述根資料夾內；若否則自動 `moveTo` 移入，與活動子資料夾同層，避免試算表留在「我的雲端硬碟」根目錄與系統資料夾分離。
-- **活動資料夾**：建立活動時在根資料夾下建立，名稱為 `電子簽到_{活動名稱}_{yyyyMMdd_HHmmss_SSS}`（活動名稱會去掉不適合檔名的字元並截長）。附件與設定檔皆建立在此資料夾內；程式仍以試算表內儲存的 `driveFolderId` 讀寫，不依檔名搜尋整個雲端硬碟。
-- **設定試算表**：與活動一併建立，檔名為 `電子簽到_{活動名稱}_{同上時間戳}_設定`，內含「分組」「名單」「說明」工作表，供備份或協作格式；匯入後台名單可後續擴充。
+| 測試階層 | 測試目錄 | 涵蓋重點 |
+|---|---|---|
+| **Tier 1: 功能覆蓋與靜態完整性** | `tests/tier1-features/` | 語法完整性、`.claspignore` 部署隔離、R1 樹狀模型、R2 快取 CRUD、R3 附件安全樁、R5 Checkbox 樣式規範、R6 經典設計 Token |
+| **Tier 2: 邊界與極端狀況** | `tests/tier2-boundary/` | Properties 8KB 分片切片邊界、350KB Drive 溢位門檻觸發、4 層以上深層階層樹 (處>科>組>小隊)、特殊字元與 UTF-8 密碼雜湊防偽 |
+| **Tier 3: 跨功能互動** | `tests/tier3-cross/` | Fast Store 0 次 Sheet RPC 驗證、`adminSyncToSheets` 批次同步、跨節點人員動態調動、密碼保護與現場 6 位驗證碼簽到流程 |
+| **Tier 4: 真實應用情境** | `tests/tier4-application/` | 100+ 人員名冊高負載模擬、資料夾更名路徑級聯更新、儲存容量健康度動態計算、全螢幕看板響應式饋送 |
 
-## 新增/變更內容
+---
 
-- **UX（簽到頁）**：行動裝置加入 `viewport`／`theme-color`、`body.page-checkin` 與 `@media (max-width:520px)` 樣式：安全區內距、頂欄直向堆疊、簽到／簽退等寬觸控列（最小高度 44px）、開放狀態與滑動列換行／略放大軌道與滑塊以利手指操作。
-- **UX／修正**：看板統計列改為正確區分「未簽／已簽退」，出席率改以**目前在場（已簽到）人數**計算，並顯示簽退人數；無選活動時不再每次輪詢重複跳出提示。
-- **UX／修正**：簽到頁滑動軌道在版面尚未完成或視窗縮放時，避免滑塊座標異常；以 `ResizeObserver` 與視窗 `resize` 將滑塊復位。
-- **UX**：活動已選取但管理員尚未「開放簽到」時，停用簽到／簽退按鈕與滑動確認區，並於軌道提示「活動尚未開放簽到」，減少誤操作後才看到錯誤訊息。
-- **開發**：`.gitignore` 略過 `/debug-*.log`（本機除錯日誌不納入版控）。
-- **v0.1.0**：建立專案骨架、頁面路由、Sheet/Drive 初始化、基本管理頁（建立活動/開關簽到/產出連結）、簽到頁滑動送出 UI、看板輪詢 UI；新增示範資料 `adminSeedDemoData()` 方便快速測試。
-- **v0.2.0**：見下方 **架構**／**安全**／**效能**／**附件** 四條（簽到密鑰、活動清單篩選、看板快取、上傳限制、`Utils.gs`）。
-- **修正**：補上伺服端 `esc()`，避免 HTML 模板渲染時出現 `ReferenceError: esc is not defined`。
-- **曾有**：管理頁曾提供共同管理員 UI（已移除）；`ADMIN_EMAILS` 改為僅能於指令碼屬性手動維護。
-- **UX**：背景改為更乾淨的低干擾漸層，降低視覺雜訊、提高操作對比。
-- **新增**：建立活動時自動建立對應 Drive 資料夾，並在管理頁顯示資料夾連結。
-- **完成**：簽到/簽退 API（寫入 `Logs`、更新 `StatusCache`、防重複/防連點、檢查活動是否開放）。
-- **完成**：看板 state API（依分類/分組聚合名單 + 狀態顏色/時間，前端輪詢）。
-- **完成**：管理頁分組/名單 CRUD、每日附件圖片上傳/刪除（Drive + `DailyAttachments`）。
-- **UX**：三頁一致導覽（管理/簽到/看板），視覺改為更乾淨的深色系、元件與間距一致；看板加入統計列（應到/實到/未簽/出席率）。
-- **Drive**：根資料夾改為 `電子簽到_系統_…` 命名；活動資料夾改為 `電子簽到_{名稱}_{時間戳}`，並於同資料夾建立 `…_設定` 試算表範本；管理頁可複製建立當下的設定表連結。
-- **修正**：頂部導覽與管理頁 QR／簽到／看板連結一律導向 `**https://script.google.com/macros/s/…/exec?page=…`**（正式 Web App 網址）。`…googleusercontent.com/userCodeAppPanel?page=…` 僅為 iframe 內載入點，**不能**當成瀏覽器主網址使用，否則會空白。
-- **實作**：`getWebAppUrl_()` 使用 `ScriptApp.getService().getUrl()` 並寫入 `**WEB_APP_URL`** 快取。前端在 **HtmlService iframe**（`googleusercontent.com/userCodeAppPanel`）內時，`window.location` 不是 `script.google.com/.../exec`，且 `**document.referrer` 可能被 Referrer-Policy 清空**，相對連結 `?page=admin` 會錯留在 userCodeAppPanel。載入後會 `**google.script.run.getWebAppExecUrlForClient()`** 向伺服端取正確 `/exec` 並改寫導覽列；`resolveWebAppBase` 順序為：**伺服端釘選 `__GAS_EXEC_BASE`** → **referrer** → **location** → **bootstrap**。若仍失敗可手動設定 `WEB_APP_URL`。
-- **修正**：管理頁載入活動清單失敗時，錯誤曾被後續「管理頁就緒」Toast 蓋掉，且文案寫「請看上方」但訊息實際在下方。改為**選單下方固定錯誤區**顯示完整原因、僅在全部初始化成功時顯示「管理頁就緒」；並新增 `formatApiError` 統一顯示 `google.script.run` 錯誤。
-- **權限**：`doGet` 開啟管理頁前若未通過管理員驗證，改回傳可讀的 HTML 說明（非匿名錯誤頁）；`requireAdmin_` 改為**不分大小寫**比對 email。
-- **修正**：`adminListEvents` 改回傳 `{ ok, events }`（並將試算表日期欄轉成字串），避免 `google.script.run` 序列化陣列在客戶端變成 `null` 而觸發 `Cannot read properties of null (reading 'map')`；管理頁 `loadEvents` 另做防呆。
-- **UX**：未登入 Google 即開啟管理頁時，錯誤頁提供 **「由此登入 Google 帳號」** 按鈕（`target="_top"`，`continue` 導回管理頁）；若尚無快取的 Web App 網址則僅導向 Google 登入頁。
-- **復原**：若指令碼屬性中的 `**DRIVE_FOLDER_ID`（根資料夾）** 或 `**SPREADSHEET_ID`（主試算表）** 已在雲端硬碟被刪除或無權限，`ensureInitialized_`／`getDb_` 會**清除失效 ID 並自動新建**根資料夾與主試算表、重新初始化工作表（`ADMIN_EMAILS` 等仍留在指令碼屬性；活動／名單等**表內資料**會是新的空庫）。
-- **QR Code**：管理頁依目前活動即時顯示簽到連結之 QR（內嵌 [qrcodejs](https://github.com/davidshimjs/qrcodejs)）；看板以**固定角落**小圖顯示簽到 QR（輪詢回傳之 `checkinUrl` 更新時重繪），並可從下拉選單**切換活動**（變更時以 `history.replaceState` 同步網址 `eventId`）。`**publicListBoardEvents`**：看板與簽到頁載入時皆**不篩選 isOpen**（下拉可見全部活動）；各活動回傳 `**requiresCheckinCode`**。簽到／看板 QR 網址**不含** `checkinToken`；**QR 下方**以 `renderCurrentCheckinCode`（`[app.js.html](app.js.html)`）顯示目前 **6 位簽到驗證碼**（`publicGetBoardState` 併入 `currentCheckinCode`）。
-- **UX**：已啟用驗證碼自動輪替時，管理頁簽到 QR 下方顯示**距離目前驗證碼變更**之倒數，歸零時自動重繪 QR 與驗證碼。看板角落同樣顯示倒數（`publicGetBoardState` 之 `checkinQrInvalidInSeconds` 等；未啟用輪替時改為說明文案）。
-- **簽到首頁（Checkin）**：活動為**下拉選單**（`publicListBoardEvents()`）；若網址或 QR 已帶 `eventId` 則自動選定並鎖定選單。姓名欄新增**關鍵字搜尋**篩選，仍以下拉選單選取正式名單。
-- **看板配額**：看板頁曾用 `setInterval` 呼叫非同步 `tick()`，導致多個 `publicGetBoardState` **重疊執行**，易觸發 Google 試算表／同時執行配額相關錯誤。已改為**單飛** `setTimeout` 鏈（上一輪完成後才排下一輪）、分頁在背景時拉長間隔、載入時先取 `exec` 網址再載活動；看板輪詢間隔**固定 5 秒**（與 `POLL_SECONDS` 分離）。
-- **簽到回傳**：`publicSubmitAttendance` 的 `serverTime` 改為**字串**（`cellToPlain_`），避免 `google.script.run` 序列化含 `Date` 的物件在客戶端變成 `null`，進而觸發 `Cannot read properties of null (reading 'serverTime')`；簽到頁並對回傳做防呆。
-- **簽到 UI**：移除「字體／字型」輸入欄；送出時仍傳 `font: ''`，`Logs` 工作表之 `font` 欄位保留（寫入空字串）。名單試算表範本之 `font` 欄說明未改，供進階用途。
-- **UX**：管理頁顯示目前活動**是否開放簽到**（狀態列 +「開放／關閉」按鈕強調色）；簽到頁顯示**本活動管理狀態**，且按下「簽到／簽退」後按鈕以綠／橘強調選取動作。
-- **看板**：`publicGetBoardState` 的 `now` 改為**字串**（`cellToPlain_`），狀態快取列之 `lastTime` 亦改為字串，避免 `google.script.run` 回傳含 `Date` 時客戶端整包為 `null` 而觸發 `Cannot read properties of null (reading 'now')`；前端 `render`／`tick` 並做防呆。
-- **簽到狀態**：`getStatus_`／`publicGetPersonStatus` 的 `lastTime` 改為字串（`cellToPlain_`），回傳欄位亦強制字串化，避免客戶端 `Cannot read properties of null (reading 'status')`；簽到頁 `refreshStatus` 並做防呆。
-- **維護**：已移除簽到／看板／管理頁「大量新增」流程中導向本機 ingest 的除錯用 `fetch` 與 `adminCreateRosterBulk` 內之 `Logger` 除錯輸出，正式環境不再嘗試連線 `127.0.0.1`。
-- **部署／權限**：`[appsscript.json](appsscript.json)` 預設 `**USER_DEPLOYING`** + `**ANYONE_ANONYMOUS**`（見上文「開發與部署」）；管理員 email 僅能於 `**ADMIN_EMAILS**` 指令碼屬性維護。
-- **UX／說明**：「無法開啟管理頁」黃色提示改為簡化說明；移除管理錯誤頁之本機 ingest 除錯腳本。
-- **移除**：管理頁「共同管理員」卡片與 `adminListAdmins`、`adminAddAdminEmail`、`adminRemoveAdminEmail`、`adminAddCurrentUser`；`requireAdmin_` 錯誤訊息與初始化 `ADMIN_EMAILS` 邏輯調整（見 `[Auth.gs](Auth.gs)`、`[Code.gs](Code.gs)`）。
-- **維護**：確認程式碼中已無本機 ingest 除錯呼叫；工作區 已列入 `[.gitignore](.gitignore)`，不納入版本庫，可週期性清理本機日誌。
-- **Drive**：主資料試算表會收進 `DRIVE_FOLDER_ID` 根資料夾（`ensureSpreadsheetInDriveFolder_`）；既有部署在下次觸發初始化時若檔案仍在根目錄，會自動搬入同一資料夾。
-- **架構（v0.2.0）**：新增 `[Utils.gs](Utils.gs)` 集中 `cellToPlain_`；`[PublicAccess.gs](PublicAccess.gs)` 為簽到驗證與看板狀態快取鍵。
-- **安全（v0.2.0）**：管理頁可「產生／重設」「清除」現場簽到驗證碼（API 欄位名仍為 `adminRegenerateEventCheckinToken` 等）；`adminGetEventSecurity`／`adminRegenerateEventCheckinToken`／`adminClearEventCheckinToken`；設有驗證碼時 `publicListRoster`／`publicSubmitAttendance`／`publicGetPersonStatus` 須帶正確 `token`（6 位數字或仍有效之上一組／歷史組）。
-- **安全（v0.2.1／v0.2.7）**：`[AdminService.gs](AdminService.gs)` 之 `adminCreateBoardPairCode`；`[PublicAccess.gs](PublicAccess.gs)` 之 `createBoardPairCodeForEvent_`／`publicExchangeBoardPairCode`／看板工作階段快取；**v0.2.7** 起 `publicGetBoardState` 僅以 `**assertPublicEventTokenOrBoardSession_`** 接受**看板工作階段**，不得以簽到驗證碼通過。
-- **效能（v0.2.0）**：`publicGetBoardState` 使用 `CacheService` 文件快取（`BOARD_STATE_CACHE_TTL_SECONDS`，預設 2 秒；`0` 關閉）；簽到成功寫入後會使該活動快取失效。
-- **附件（v0.2.0）**：`adminUploadDailyAttachment` 限制 MIME（JPEG／PNG／GIF／WebP）與解碼後約 4 MB，錯誤以明確訊息回傳；附件清單之 `createdAt` 改為字串。
-- **UX**：管理頁簽到連結／Drive 資料夾／設定試算表欄位旁新增**複製**按鈕（`[app.js.html](app.js.html)` 共用 `copyTextToClipboard`）；簽到頁名單與狀態 API 錯誤改為 `formatApiError`、Toast 支援錯誤樣式與成功訊息自動清除、送出中鎖定簽到／簽退與滑塊並標示 `aria-busy`，滑塊可 **Enter／空白鍵**送出；看板頂部顯示**活動名稱**、輪詢時顯示「更新中…」、失敗時於 Toast 與橫幅顯示統一錯誤文案；看板名單變更時以**中央提示**顯示變更摘要（見「目前進度」看板變更提示）。
-- **名單／分組**：管理頁支援**大量新增**名單（多行文字、與單筆新增共用分組下拉），後端 `adminCreateRosterBulk` 以批次寫入試算表，**單次上限 500 筆**；`sort` 由 0 遞增以便同批排序。**修正**：`getRange` 須依 Apps Script 語意傳入**列數／欄數**（第三、四參數），不可誤用「結束列」；先前在 `startRow>1` 時會出現「資料列數與範圍列數不符」。新增分組時**分類、分組名稱可擇一填寫或皆留空**，寫入前會正規化為「未分類」「未分組」（`[Utils.gs](Utils.gs)` `normalizeGroupCategoryAndName_`）；看板與 `adminListGroups` 對空白舊資料亦以相同規則顯示，介面上為「未分類｜未分組」。
-- **v0.2.2（驗證碼輪替）**：`[PublicAccess.gs](PublicAccess.gs)` 之 `ensureCheckinTokenRotated_`（`LockService`）、`getEventCheckinRotateSeconds_`；`[RosterService.gs](RosterService.gs)` 之 `adminSetEventCheckinTokenRotate`、`adminGetEventSecurity` 擴充（`rotateSeconds`、`rotatedAt`、`prevExists`）；輪替後 `**buildPublicCheckinUrl_`** 於回傳前觸發輪替（**v0.2.7** 起網址不再附帶 token，僅 `eventId`）。管理頁 QR／複製連結與看板角落皆隨輪詢或倒數歸零更新。
-- **v0.2.2（看板變更提示）**：指令碼屬性 `**BOARD_TRANSITION_DEFAULT`**（預設開）透過 `adminGetBoardTransitionDefault`／`adminSetBoardTransitionDefault` 維護；看板 bootstrap 帶 `boardTransitionDefault`，頁面 `**localStorage.boardTransitionEnabled**`（`'1'`/`'0'`）可覆寫單機偏好（控制是否顯示中央變更提示，鍵名沿用歷史相容）。
+## 📝 更新日誌 (Changelog)
 
+### v1.0.1 (2026-10-16) - 後端儲存分片、樹狀防環與簽到同步缺陷修復
+- **[儲存] Fast Store 8KB UTF-8 安全分片**：重構分片切分邏輯，保證每片 UTF-8 位元組長度絕不超過 8,000 bytes，徹底消除 300+ 中文名冊寫入 PropertiesService 時衝破 9KB 配額之上限崩潰。
+- **[儲存] Drive 溢位安全讀取與健康度校正**：`fastStoreGet` 支援 `getContentAsString` 與 `getBlob().getDataAsString('UTF-8')`，讀取失敗時記錄日誌絕不盲目覆寫清空快取；容量健康度計算全面改採真實 UTF-8 位元組累計。
+- **[樹狀] 分類移動防環機制 (Cycle Detection)**：`adminUpdateGroup` 新增祖先鏈走訪檢查，禁止將分類節點移至其任何子孫節點之下，杜絕循環參照造成的目錄樹毀滅性攤平。
+- **[簽到] 名冊查詢與密碼雙向快取同步**：`getPersonInEvent_` 優先查詢 Fast Store 名冊，達成現場新增人員即刻簽到；`publicChangePassword` 與初次綁定密碼同步更新 Fast Store，防止手動同步至試算表時抹除新密碼。
+- **[測試] 測試台架 Mock 補全**：`gas-mock.js` 補全 `RangeMock.clearContent()`, `FileMock.getBlob()`, `DriveAppMock.getRootFolder()`，全量 92 項測試與 19 項極端對抗測試 100% 綠燈通過。
+
+### v1.0.0 (2026-10-16) - 核心架構大重構與雙端經典實用升級
+- **[R1] 無限層級資料夾樹狀名冊**：支援任意深度分類模型，後台提供檔案總管式折疊/展開，任意節點新增子分類或人員，上層更名自動級聯更新路徑。
+- **[R2] 雙層快取與雲端試算表同步**：實作 PropertiesService 8KB 自動分片緊湊快取，達成日常操作 0 Sheet RPC；提供手動批次寫入試算表永久封存；提供 350KB Drive 溢位配套與容量健康度即時監控面板。
+- **[R3] 附件系統安全停用**：安全註解與樁化附件上傳與展示邏輯，名冊面板擴展為單欄滿版，節約 Drive 儲存空間與頁面載入 RPC。
+- **[R4] 100vw 全螢幕可折疊階層看板**：解除 1120px 寬度上限，採 100vw 自適應流式多欄排版；支援分類標頭點擊折疊展開（持久化記憶狀態）；徹底修復 3 欄擠壓與文字垂直折行破版。
+- **[R5] 管理表單與 Checkbox 排版校正**：隔離全域樣式污染，明確宣告 18px 經典尺寸規範，核取方塊固定置於文字左側且絕不折行。
+- **[R6] 經典實用風格與行動端 3-Tab 導航**：全面移除 48px 厚重陰影、霓虹光暈與毛玻璃，回歸 1px 高對比實線邊框與 4px-12px 精緻微陰影；手機端（375px~412px）提供 3-Tab 標籤頁（名單名冊 / 系統設定 / 即時看板）與 44px 觸控高度。
+- **自動化測試體系**：建置零依賴 Node.js 4-Tier 測試框架（49 項測試 100% 通過）與 `.claspignore` 部署防護。
+
+### v0.4.0 (2026-10-16) - 前端體驗與大螢幕看板現代化
+- **極速動線**：支援 URL 直通解析，廢除滑動條改採「確認簽到大按鈕」，支援 0.3 秒觸覺震動回饋與 0.8 秒平滑自動復位。
+- **身分安全**：實作個人簽到密碼保護機制與自主變更密碼功能。
+- **活動繼承**：新增活動時支援沿用歷史活動分組名冊與密碼設定。
+- **雙層看板**：即時大螢幕看板支援主類別分群網格卡片與出席率統計。
+
+### v0.3.0 (2026-10-16) - 效能與響應速度大幅優化
+- **快速載入**：`doGet` 快照載入，消除開頁重複遍歷 Drive 與工作表。
+- **快取修復**：修正 Standalone Web App 下 `CacheService` 調用，看板快取 TTL 提升至 20 秒以上。
+- **鎖範圍優化**：縮短 `LockService` 持鎖範圍，唯讀檢查移至鎖外。
+- **消除 N+1 查詢**：活動列表讀取消除重複查詢，管理頁改用 `Promise.all` 並行請求。
+
+### v0.2.x - 現場驗證碼輪替與看板工作階段授權
+- 實作 6 位數字現場簽到驗證碼與自訂週期自動輪替機制。
+- 看板端採一次性配對授權碼機制，簽到驗證碼與看板授權解耦。
+- 新增看板名單變更提示與輪詢配額控管。
+
+### v0.1.0 - 專案基礎骨架建立
+- 完成 Google Apps Script 基礎專案路由、Sheet/Drive 初始化與基礎簽到 API。

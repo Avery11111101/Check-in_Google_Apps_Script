@@ -60,10 +60,14 @@
             <span class="badge mono" id="updatedAt"></span>
           </div>
 
-          <div class="row" style="justify-content:center; margin-top:10px">
+          <div class="row" style="justify-content:center; align-items:center; gap:8px; margin-top:10px; flex-wrap:wrap">
             <div class="pill"><span class="dot not"></span><span>未簽到</span></div>
             <div class="pill"><span class="dot ok"></span><span>已簽到</span></div>
             <div class="pill"><span class="dot bad"></span><span>已簽退</span></div>
+            <div style="margin-left:8px;display:inline-flex;gap:6px">
+              <button type="button" id="btnBoardExpandAll" class="secondary" style="font-size:12px;padding:3px 10px;min-height:28px">全部展開</button>
+              <button type="button" id="btnBoardCollapseAll" class="secondary" style="font-size:12px;padding:3px 10px;min-height:28px">全部折疊</button>
+            </div>
           </div>
 
           <div id="boardFetchError" class="banner-error" style="display:none;margin-top:10px" role="alert"></div>
@@ -136,6 +140,10 @@
           setBoardTransitionEnabled(!!chkBoardTransitionEl.checked);
         });
       }
+      var btnBoardExp = $('#btnBoardExpandAll');
+      if (btnBoardExp) btnBoardExp.addEventListener('click', expandAllBoardNodes);
+      var btnBoardCol = $('#btnBoardCollapseAll');
+      if (btnBoardCol) btnBoardCol.addEventListener('click', collapseAllBoardNodes);
       /** 看板輪詢固定每 5 秒（與簽到頁 POLL_SECONDS 分離）。 */
       const BOARD_POLL_SECONDS = 5;
       const BOARD_QR_DOCK_PX = 120;
@@ -458,45 +466,239 @@
         }).join('|');
       }
 
+      var BOARD_COLLAPSED_LS = 'boardCollapsedNodes_';
+      var collapsedBoardNodes = new Set();
+
+      function loadCollapsedBoardNodes(){
+        collapsedBoardNodes.clear();
+        try {
+          var raw = localStorage.getItem(BOARD_COLLAPSED_LS + String(boardEventId || '').trim());
+          if (raw) {
+            var arr = JSON.parse(raw);
+            if (Array.isArray(arr)) {
+              arr.forEach(function(k){ collapsedBoardNodes.add(String(k)); });
+            }
+          }
+        } catch (_e) {}
+      }
+
+      function saveCollapsedBoardNodes(){
+        try {
+          localStorage.setItem(
+            BOARD_COLLAPSED_LS + String(boardEventId || '').trim(),
+            JSON.stringify(Array.from(collapsedBoardNodes))
+          );
+        } catch (_e) {}
+      }
+
+      function toggleBoardNodeCollapse(nodeKey, cardEl){
+        if (collapsedBoardNodes.has(nodeKey)) {
+          collapsedBoardNodes.delete(nodeKey);
+          if (cardEl) cardEl.classList.remove('is-collapsed');
+        } else {
+          collapsedBoardNodes.add(nodeKey);
+          if (cardEl) cardEl.classList.add('is-collapsed');
+        }
+        saveCollapsedBoardNodes();
+      }
+
+      function expandAllBoardNodes(){
+        collapsedBoardNodes.clear();
+        saveCollapsedBoardNodes();
+        $all('.boardCategoryCard, .boardSubgroupBlock').forEach(function(el){
+          el.classList.remove('is-collapsed');
+        });
+      }
+
+      function collapseAllBoardNodes(){
+        $all('[data-board-node-key]').forEach(function(el){
+          var k = el.getAttribute('data-board-node-key');
+          if (k) collapsedBoardNodes.add(k);
+          el.classList.add('is-collapsed');
+        });
+        saveCollapsedBoardNodes();
+      }
+
       function buildPersonHtml_(p){
         var tagClass = statusTagClass_(p.status);
         return (
           '<div class="person" data-person-id="' + esc(p.personId) + '">' +
-            '<div>' +
+            '<div class="person__main">' +
               '<div class="name">' + esc(p.displayName) + '</div>' +
-              '<div class="meta">' + esc(p.category) + ' / ' + esc(p.groupName) + '　<span class="mono" data-role="last-time">' + esc(p.lastTime ? fmtTs(p.lastTime) : '') + '</span></div>' +
+              '<div class="meta">' + esc(p.category || '') + (p.groupName ? (' / ' + esc(p.groupName)) : '') + '　<span class="mono" data-role="last-time">' + esc(p.lastTime ? fmtTs(p.lastTime) : '') + '</span></div>' +
             '</div>' +
-            '<div class="statusTag ' + tagClass + '" data-role="status">' + esc(p.statusLabel) + '</div>' +
+            '<div class="statusTag ' + tagClass + '" data-role="status">' + esc(p.statusLabel || '') + '</div>' +
           '</div>'
         );
       }
 
-      function renderFullBoard_(groups, categories){
-        if (categories && categories.length) {
-          $('#board').innerHTML = '<div class="boardCategoryGrid">' + categories.map(function(cat){
-            var subGroupsHtml = (cat.groups || []).map(function(sg){
-              var peopleHtml = (sg.people || []).map(buildPersonHtml_).join('');
-              return (
-                '<div class="boardSubgroupBlock">' +
-                  '<div class="boardSubgroupTitle">' +
-                    '<span>📂 ' + esc(sg.groupName) + '</span>' +
-                    '<span class="badge mono" style="font-size:11px">' + (sg.people || []).length + ' 人</span>' +
-                  '</div>' +
-                  '<div class="boardCols">' + peopleHtml + '</div>' +
-                '</div>'
-              );
-            }).join('');
+      function renderTreeFolderHtml_(folder){
+        var nodeKey = 'folder_' + (folder.groupId || folder.path || folder.name);
+        var isCollapsed = collapsedBoardNodes.has(nodeKey);
+        var stats = folder.stats || {};
+        var badgeText = '實到 ' + (stats.signed || 0) + ' / 應到 ' + (stats.total || 0) + ' (' + (stats.attendanceRate || '0.0') + '%)';
 
+        var membersHtml = '';
+        if (folder.members && folder.members.length) {
+          var peopleCards = folder.members.map(buildPersonHtml_).join('');
+          membersHtml = '<div class="boardCols">' + peopleCards + '</div>';
+        }
+
+        var childrenHtml = '';
+        if (folder.children && folder.children.length) {
+          childrenHtml = folder.children.map(function(sub){
+            return renderTreeSubgroupHtml_(sub);
+          }).join('');
+        }
+
+        return (
+          '<div class="boardCategoryCard ' + (isCollapsed ? 'is-collapsed' : '') + '" data-board-node-key="' + esc(nodeKey) + '">' +
+            '<div class="boardCategoryCard__head">' +
+              '<div class="boardCategoryCard__title">' +
+                '<span class="boardCategoryCard__arrow">▼</span>' +
+                '<span>📁 ' + esc(folder.name || folder.category || '未命名分類') + '</span>' +
+              '</div>' +
+              '<div class="badge" style="font-size:12px">' + esc(badgeText) + '</div>' +
+            '</div>' +
+            '<div class="boardCategoryCard__body">' +
+              (membersHtml ? '<div class="boardSubgroupBlock">' + membersHtml + '</div>' : '') +
+              childrenHtml +
+            '</div>' +
+          '</div>'
+        );
+      }
+
+      function renderTreeSubgroupHtml_(folder){
+        var nodeKey = 'sub_' + (folder.groupId || folder.path || folder.name);
+        var isCollapsed = collapsedBoardNodes.has(nodeKey);
+        var stats = folder.stats || {};
+        var badgeText = (folder.members ? folder.members.length : 0) + ' 人（實到 ' + (stats.signed || 0) + '）';
+
+        var membersHtml = '';
+        if (folder.members && folder.members.length) {
+          var peopleCards = folder.members.map(buildPersonHtml_).join('');
+          membersHtml = '<div class="boardCols">' + peopleCards + '</div>';
+        }
+
+        var childrenHtml = '';
+        if (folder.children && folder.children.length) {
+          childrenHtml = folder.children.map(function(sub){
+            return renderTreeSubgroupHtml_(sub);
+          }).join('');
+        }
+
+        return (
+          '<div class="boardSubgroupBlock ' + (isCollapsed ? 'is-collapsed' : '') + '" data-board-node-key="' + esc(nodeKey) + '">' +
+            '<div class="boardSubgroupTitle">' +
+              '<span><span class="boardSubgroupArrow">▼</span>📂 ' + esc(folder.name || folder.groupName || '未命名分組') + '</span>' +
+              '<span class="badge mono" style="font-size:11px">' + esc(badgeText) + '</span>' +
+            '</div>' +
+            membersHtml +
+            childrenHtml +
+          '</div>'
+        );
+      }
+
+      function renderCategoriesHtml_(categories){
+        return categories.map(function(cat){
+          var nodeKey = 'cat_' + cat.category;
+          var isCollapsed = collapsedBoardNodes.has(nodeKey);
+          var subGroupsHtml = (cat.groups || []).map(function(sg){
+            var subKey = 'sub_' + (sg.groupId || (cat.category + '_' + sg.groupName));
+            var isSubCollapsed = collapsedBoardNodes.has(subKey);
+            var peopleHtml = (sg.people || []).map(buildPersonHtml_).join('');
             return (
-              '<div class="boardCategoryCard">' +
-                '<div class="boardCategoryCard__head">' +
-                  '<div class="boardCategoryCard__title">📁 ' + esc(cat.category) + '</div>' +
-                  '<div class="badge" style="font-size:12px">實到 ' + cat.signed + ' / 應到 ' + cat.total + ' (' + cat.attendanceRate + '%)</div>' +
+              '<div class="boardSubgroupBlock ' + (isSubCollapsed ? 'is-collapsed' : '') + '" data-board-node-key="' + esc(subKey) + '">' +
+                '<div class="boardSubgroupTitle">' +
+                  '<span><span class="boardSubgroupArrow">▼</span>📂 ' + esc(sg.groupName) + '</span>' +
+                  '<span class="badge mono" style="font-size:11px">' + (sg.people || []).length + ' 人</span>' +
                 '</div>' +
-                subGroupsHtml +
+                '<div class="boardCols">' + peopleHtml + '</div>' +
               '</div>'
             );
-          }).join('') + '</div>';
+          }).join('');
+
+          return (
+            '<div class="boardCategoryCard ' + (isCollapsed ? 'is-collapsed' : '') + '" data-board-node-key="' + esc(nodeKey) + '">' +
+              '<div class="boardCategoryCard__head">' +
+                '<div class="boardCategoryCard__title">' +
+                  '<span class="boardCategoryCard__arrow">▼</span>' +
+                  '<span>📁 ' + esc(cat.category) + '</span>' +
+                '</div>' +
+                '<div class="badge" style="font-size:12px">實到 ' + cat.signed + ' / 應到 ' + cat.total + ' (' + cat.attendanceRate + '%)</div>' +
+              '</div>' +
+              '<div class="boardCategoryCard__body">' +
+                subGroupsHtml +
+              '</div>' +
+            '</div>'
+          );
+        }).join('');
+      }
+
+      function initBoardDelegation_(){
+        var b = $('#board');
+        if (!b || b.__hasDelegation) return;
+        b.__hasDelegation = true;
+
+        b.addEventListener('click', function(ev){
+          var head = ev.target.closest('.boardCategoryCard__head');
+          if (head) {
+            var card = head.closest('.boardCategoryCard');
+            if (card) {
+              var key = card.getAttribute('data-board-node-key');
+              if (key) toggleBoardNodeCollapse(key, card);
+            }
+            return;
+          }
+
+          var subTitle = ev.target.closest('.boardSubgroupTitle');
+          if (subTitle) {
+            var block = subTitle.closest('.boardSubgroupBlock');
+            if (block) {
+              var subKey = block.getAttribute('data-board-node-key');
+              if (subKey) toggleBoardNodeCollapse(subKey, block);
+            }
+            return;
+          }
+        });
+      }
+
+      function renderFullBoard_(groups, categories, tree){
+        loadCollapsedBoardNodes();
+        initBoardDelegation_();
+
+        if (tree && tree.rootFolders && tree.rootFolders.length) {
+          var cardsHtml = tree.rootFolders.map(function(f){
+            return renderTreeFolderHtml_(f);
+          }).join('');
+
+          if (tree.unassignedMembers && tree.unassignedMembers.length) {
+            var unKey = 'folder_unassigned';
+            var isUnCollapsed = collapsedBoardNodes.has(unKey);
+            var unPeople = tree.unassignedMembers.map(buildPersonHtml_).join('');
+            cardsHtml += (
+              '<div class="boardCategoryCard ' + (isUnCollapsed ? 'is-collapsed' : '') + '" data-board-node-key="' + esc(unKey) + '">' +
+                '<div class="boardCategoryCard__head">' +
+                  '<div class="boardCategoryCard__title">' +
+                    '<span class="boardCategoryCard__arrow">▼</span>' +
+                    '<span>📁 未分類成員</span>' +
+                  '</div>' +
+                  '<div class="badge" style="font-size:12px">' + tree.unassignedMembers.length + ' 人</div>' +
+                '</div>' +
+                '<div class="boardCategoryCard__body">' +
+                  '<div class="boardSubgroupBlock">' +
+                    '<div class="boardCols">' + unPeople + '</div>' +
+                  '</div>' +
+                '</div>' +
+              '</div>'
+            );
+          }
+          $('#board').innerHTML = '<div class="boardCategoryGrid">' + cardsHtml + '</div>';
+          return;
+        }
+
+        if (categories && categories.length) {
+          $('#board').innerHTML = '<div class="boardCategoryGrid">' + renderCategoriesHtml_(categories) + '</div>';
           return;
         }
 
@@ -509,32 +711,35 @@
         }).join('');
       }
 
-      function patchBoardInPlace_(groups){
+      function patchBoardInPlace_(groups, roster){
         var boardEl = $('#board');
         if (!boardEl) return false;
+        var people = roster || [];
+        if (!people.length) {
+          for (var i = 0; i < (groups || []).length; i++) {
+            people = people.concat(groups[i].people || []);
+          }
+        }
         var changed = 0;
-        for (var i = 0; i < groups.length; i++) {
-          var people = groups[i].people || [];
-          for (var j = 0; j < people.length; j++) {
-            var p = people[j];
-            var node = boardEl.querySelector('.person[data-person-id="' + (window.CSS && CSS.escape ? CSS.escape(p.personId) : String(p.personId).replace(/"/g, '\\"')) + '"]');
-            if (!node) return false;
-            var tagEl = node.querySelector('[data-role="status"]');
-            var lastEl = node.querySelector('[data-role="last-time"]');
-            if (tagEl) {
-              var nextCls = 'statusTag ' + statusTagClass_(p.status);
-              if (tagEl.className !== nextCls) { tagEl.className = nextCls; changed++; }
-              var nextLabel = String(p.statusLabel || '');
-              if (tagEl.textContent !== nextLabel) { tagEl.textContent = nextLabel; changed++; }
-            }
-            if (lastEl) {
-              var nextTime = p.lastTime ? fmtTs(p.lastTime) : '';
-              if (lastEl.textContent !== nextTime) { lastEl.textContent = nextTime; changed++; }
-            }
-            if (changed && (tagEl || lastEl)) {
-              node.classList.add('is-just-updated');
-              (function(n){ setTimeout(function(){ n.classList.remove('is-just-updated'); }, 1500); })(node);
-            }
+        for (var j = 0; j < people.length; j++) {
+          var p = people[j];
+          var node = boardEl.querySelector('.person[data-person-id="' + (window.CSS && CSS.escape ? CSS.escape(p.personId) : String(p.personId).replace(/"/g, '\\"')) + '"]');
+          if (!node) return false;
+          var tagEl = node.querySelector('[data-role="status"]');
+          var lastEl = node.querySelector('[data-role="last-time"]');
+          if (tagEl) {
+            var nextCls = 'statusTag ' + statusTagClass_(p.status);
+            if (tagEl.className !== nextCls) { tagEl.className = nextCls; changed++; }
+            var nextLabel = String(p.statusLabel || '');
+            if (tagEl.textContent !== nextLabel) { tagEl.textContent = nextLabel; changed++; }
+          }
+          if (lastEl) {
+            var nextTime = p.lastTime ? fmtTs(p.lastTime) : '';
+            if (lastEl.textContent !== nextTime) { lastEl.textContent = nextTime; changed++; }
+          }
+          if (changed && (tagEl || lastEl)) {
+            node.classList.add('is-just-updated');
+            (function(n){ setTimeout(function(){ n.classList.remove('is-just-updated'); }, 1500); })(node);
           }
         }
         return true;
@@ -557,19 +762,23 @@
           lastUpdatedStr = updatedStr;
         }
         const groups = state.groups || [];
-        if (!groups.length){
+        if (!groups.length && (!state.roster || !state.roster.length)){
           $('#board').innerHTML = '<div class="hint" style="margin-top:10px">目前沒有名單。請到管理頁匯入名單與分組。</div>';
           lastBoardStructKey = '';
           return;
         }
 
         let signed = 0, notYet = 0, signedOut = 0;
-        groups.forEach(function(g){
-          (g.people || []).forEach(function(p){
-            if (p.status === 'IN') signed++;
-            else if (p.status === 'OUT') signedOut++;
-            else notYet++;
+        var personList = (state.roster && state.roster.length) ? state.roster : [];
+        if (!personList.length) {
+          groups.forEach(function(g){
+            (g.people || []).forEach(function(p){ personList.push(p); });
           });
+        }
+        personList.forEach(function(p){
+          if (p.status === 'IN') signed++;
+          else if (p.status === 'OUT') signedOut++;
+          else notYet++;
         });
         const total = signed + notYet + signedOut;
         const rate = total > 0 ? ((signed / total) * 100).toFixed(1) : '0.0';
@@ -586,9 +795,9 @@
 
         var nextStructKey = buildStructKey_(state);
         if (nextStructKey === lastBoardStructKey && lastBoardStructKey) {
-          if (patchBoardInPlace_(groups)) return;
+          if (patchBoardInPlace_(groups, state.roster)) return;
         }
-        renderFullBoard_(groups, state.categories);
+        renderFullBoard_(groups, state.categories, state.tree);
         lastBoardStructKey = nextStructKey;
       }
 

@@ -28,7 +28,7 @@
       <div class="topbar">
         <div>
           <div class="title">管理</div>
-          <div class="subtitle">活動設定、雙層名冊與附件管理</div>
+          <div class="subtitle">活動設定與階層名冊管理</div>
         </div>
         <div class="topActions">
           <div id="topNav"></div>
@@ -38,186 +38,247 @@
         </div>
       </div>
 
-      <div class="grid">
-        <div class="card">
-          <h2>活動 / 場次</h2>
-          <div class="row">
-            <button type="button" id="btnOpenCreateEventModal">建立新活動</button>
-            <button type="button" id="btnRefresh" class="secondary">重新整理</button>
-          </div>
-          <div class="field">
-            <label for="eventSelect">選擇活動</label>
-            <select id="eventSelect"><option value="">載入中…</option></select>
-            <div id="eventLoadError" class="banner-error" style="display:none" role="alert"></div>
-          </div>
+      <!-- R6 行動端經典 3-Tab 標籤頁導航列 (375px ~ 412px) -->
+      <nav id="adminMobileTabBar" class="mobileTabBar" aria-label="管理後台行動分頁導航">
+        <button type="button" class="mobileTabItem is-active" id="tabBtnRoster" data-target-pane="paneRoster">
+          📁 名單名冊
+        </button>
+        <button type="button" class="mobileTabItem" id="tabBtnSettings" data-target-pane="paneSettings">
+          ⚙️ 系統設定
+        </button>
+        <button type="button" class="mobileTabItem" id="tabBtnBoard" data-target-pane="paneBoard">
+          📊 即時看板
+        </button>
+      </nav>
 
-          <!-- 活動密碼驗證設定 -->
-          <div class="field" id="eventPasswordSettingsWrap" style="background:var(--surface2);padding:12px;border-radius:8px;border:1px solid var(--border)">
-            <label style="font-weight:700;margin-bottom:6px">活動個人密碼安全機制</label>
-            <div style="display:flex;flex-direction:column;gap:8px;margin-top:6px">
-              <label class="row" style="align-items:center;gap:8px;cursor:pointer">
-                <input type="checkbox" id="chkEventRequirePwd">
-                <span><strong>啟用個人密碼驗證</strong>（成員簽到時須輸入個人專屬密碼）</span>
-              </label>
-              <label class="row" style="align-items:center;gap:8px;cursor:pointer">
-                <input type="checkbox" id="chkEventAllowChangePwd">
-                <span><strong>允許成員自行變更密碼</strong>（在活動開放簽到期間可自行修改）</span>
-              </label>
-              <div class="row" style="margin-top:6px">
-                <button type="button" id="btnSaveEventPwdSettings" class="secondary" style="font-size:13px;padding:6px 12px">儲存密碼設定</button>
+      <!-- 標籤頁 1: 結構化名冊管理面板 -->
+      <!-- R3 DEACTIVATED: 附件系統 UI 停用，名冊管理調整為單欄滿版 -->
+      <div id="paneRoster" class="admin-tab-pane is-active">
+        <div class="grid" style="grid-template-columns: 1fr;">
+          <div class="card">
+            <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px;margin-bottom:12px">
+              <h2 style="margin:0">名冊與階層分類管理</h2>
+              <div class="row" style="gap:8px;flex-wrap:wrap">
+                <button type="button" id="btnTreeAddRootGroup" class="secondary">+ 新增根分類</button>
+                <button type="button" id="btnOpenBatchImportModal">批次匯入名冊</button>
               </div>
             </div>
-          </div>
 
-          <div class="field">
-            <label>QR Code 連結</label>
-            <div class="copyRow">
-              <input id="qrLink" class="mono copyRow__input" readonly>
-              <button type="button" id="btnCopyQrLink" class="secondary">複製</button>
-            </div>
-            <div id="adminQrHost" class="qrBox qrBox--admin" aria-hidden="true"></div>
-            <div id="adminCurrentCodeHost" style="margin-top:10px"></div>
-            <div id="adminQrCountdown" class="hint" style="margin-top:8px;text-align:center" aria-live="polite"></div>
-            <div class="hint">下方 QR 與連結相同；投影或大圖請至看板頁。</div>
-          </div>
-
-          <div class="field">
-            <label>活動雲端資料夾（Drive）</label>
-            <div class="copyRow">
-              <input id="eventFolderUrl" class="mono copyRow__input" readonly>
-              <button type="button" id="btnCopyFolderUrl" class="secondary">複製</button>
-            </div>
-            <div class="hint">所有活動子資料夾與附件皆在腳本設定的「電子簽到」根資料夾下；格式為 <span class="mono">電子簽到_{活動名稱}_{時間戳}</span>。</div>
-          </div>
-
-          <div class="field">
-            <label>活動設定試算表（建立當下）</label>
-            <div class="copyRow">
-              <input id="eventSettingsUrl" class="mono copyRow__input" readonly placeholder="建立新活動後會顯示連結；其他活動請至雲端資料夾開啟。">
-              <button type="button" id="btnCopySettingsUrl" class="secondary">複製</button>
-            </div>
-          </div>
-
-          <div id="eventOpenStatus" class="pill openStatusPill" style="display:none" role="status" aria-live="polite"></div>
-          <div class="row">
-            <button type="button" id="btnOpen">開放簽到</button>
-            <button type="button" id="btnClose" class="secondary">關閉簽到</button>
-          </div>
-
-          <div class="field">
-            <label>現場簽到驗證碼（選用）</label>
-            <div id="checkinTokenStatus" class="hint">請先選擇活動。</div>
-            <div class="row">
-              <button type="button" id="btnGenCheckinToken" class="secondary">產生／重設驗證碼</button>
-              <button type="button" id="btnClearCheckinToken" class="secondary">清除驗證碼</button>
-            </div>
-            <div id="tokenRotateWrap" class="field" style="margin-top:12px;padding-top:12px;border-top:1px solid rgba(255,255,255,.08)">
-              <label for="tokenRotateSelect">驗證碼自動變更週期（降低離場後仍記得舊碼簽到）</label>
-              <div class="row" style="width:100%;flex-wrap:wrap;gap:8px;align-items:center">
-                <select id="tokenRotateSelect" style="flex:1;min-width:200px">
-                  <option value="0">不自動變更（僅手動重設時換密鑰）</option>
-                  <option value="30">30 秒</option>
-                  <option value="60">1 分鐘</option>
-                  <option value="300">5 分鐘</option>
-                  <option value="600">10 分鐘</option>
-                  <option value="1800">30 分鐘</option>
-                  <option value="custom">自訂（≥30 秒）</option>
-                </select>
-                <input id="tokenRotateCustom" type="number" min="30" step="1" placeholder="秒數" style="width:100px;display:none" aria-label="自訂週期秒數">
-                <button type="button" id="btnSaveTokenRotate" class="secondary">儲存週期</button>
+            <!-- 單筆新增 -->
+            <div class="field" style="background:var(--surface2);padding:12px;border-radius:8px;border:1px solid var(--border)">
+              <label style="font-weight:700">單筆新增成員</label>
+              <div class="row" style="width:100%;margin-top:6px">
+                <input id="personName" placeholder="姓名（必填）" style="flex:1;min-width:130px">
+                <select id="personGroup" style="flex:1;min-width:140px"></select>
+                <input id="personPwdInit" type="password" placeholder="個人密碼（選填）" style="flex:1;min-width:130px">
+                <button type="button" id="btnAddPerson">新增</button>
               </div>
-              <div id="tokenRotateStatus" class="hint" style="margin-top:8px">請先選擇活動。</div>
             </div>
-          </div>
 
-          <div id="boardPairAuthWrap" class="field" style="display:none">
-            <label>看板即時授權（6 位一次性授權碼）</label>
-            <div class="row">
-              <button type="button" id="btnCreateBoardPairCode" class="secondary">產生看板授權碼</button>
+            <!-- R1 檔案總管階層樹狀名冊展示區 -->
+            <div class="treeExplorerContainer">
+              <div class="treeExplorerToolbar">
+                <div class="row" style="gap:8px">
+                  <button type="button" id="btnTreeExpandAll" class="secondary" style="font-size:12px;padding:4px 10px;min-height:28px">全部展開</button>
+                  <button type="button" id="btnTreeCollapseAll" class="secondary" style="font-size:12px;padding:4px 10px;min-height:28px">全部折疊</button>
+                </div>
+                <div class="hint" id="treeStatsHint">請先選擇活動。</div>
+              </div>
+              <div id="fileExplorerTree" class="treeView">
+                <div id="rosterHierarchicalList">請先選擇活動。</div>
+              </div>
             </div>
-            <div id="boardPairCodeDisplay" class="boardPairCodeDisplay" style="display:none" role="status" aria-live="polite"></div>
-          </div>
-          <div class="toast" id="toast"></div>
-        </div>
-      </div>
 
-      <div class="grid">
-        <div class="card">
-          <h2>看板顯示偏好</h2>
-          <div class="field">
-            <label class="row" style="align-items:center;gap:10px;cursor:pointer">
-              <input type="checkbox" id="chkBoardTransitionDefault">
-              <span>名單變更時於看板<strong>中央顯示提示</strong>（全域預設）</span>
-            </label>
-            <div class="row" style="margin-top:10px">
-              <button type="button" id="btnSaveBoardTransition">儲存全域預設</button>
-            </div>
-          </div>
-        </div>
-      </div>
-
-      <!-- 分組管理 -->
-      <div class="grid">
-        <div class="card">
-          <h2>分類 / 分組</h2>
-          <div class="field">
-            <label>新增分組（先選擇活動）</label>
-            <div class="row" style="width:100%">
-              <input id="grpCategory" placeholder="主分類（如：行政組、學員，可留空）" style="flex:1">
-              <input id="grpName" placeholder="子分組（如：第1組、第2組，可留空）" style="flex:1">
+            <!-- 保持向下相容性元素（隱藏） -->
+            <div id="legacyGroupWrap" style="display:none">
+              <input id="grpCategory">
+              <input id="grpName">
               <button type="button" id="btnAddGroup">新增分組</button>
+              <div id="groupList" class="list"></div>
             </div>
           </div>
-          <div id="groupList" class="list">請先選擇活動。</div>
+
+          <!-- 【R3 停用】每日附件圖片上傳與清單面板
+          <div class="card">
+            <h2>每日附件圖片</h2>
+            <div class="field">
+              <label>日期</label>
+              <input id="attachDate" type="date">
+            </div>
+            <div class="field">
+              <label>標題</label>
+              <input id="attachTitle" placeholder="例如：Day 1 小組照片">
+            </div>
+            <div class="field">
+              <label>上傳圖片</label>
+              <input id="attachFile" type="file" accept="image/*">
+            </div>
+            <div class="row">
+              <button type="button" id="btnUploadAttach">上傳並綁定</button>
+              <button type="button" id="btnRefreshAttach" class="secondary">重新整理</button>
+            </div>
+            <div id="attachList" class="list">請先選擇活動。</div>
+          </div>
+          -->
         </div>
       </div>
 
-      <!-- 結構化名冊管理面板 -->
-      <div class="grid">
-        <div class="card">
-          <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px;margin-bottom:12px">
-            <h2 style="margin:0">名冊管理</h2>
-            <div class="row" style="gap:8px">
-              <button type="button" id="btnOpenBatchImportModal">批次匯入名冊</button>
+      <!-- 標籤頁 2: 系統設定與活動管理 -->
+      <div id="paneSettings" class="admin-tab-pane">
+        <div class="grid">
+          <div class="card">
+            <h2>活動 / 場次</h2>
+            <div class="row">
+              <button type="button" id="btnOpenCreateEventModal">建立新活動</button>
+              <button type="button" id="btnRefresh" class="secondary">重新整理</button>
             </div>
-          </div>
-
-          <!-- 單筆新增 -->
-          <div class="field" style="background:var(--surface2);padding:12px;border-radius:8px;border:1px solid var(--border)">
-            <label style="font-weight:700">單筆新增成員</label>
-            <div class="row" style="width:100%;margin-top:6px">
-              <input id="personName" placeholder="姓名（必填）" style="flex:1;min-width:130px">
-              <select id="personGroup" style="flex:1;min-width:140px"></select>
-              <input id="personPwdInit" type="password" placeholder="個人密碼（選填）" style="flex:1;min-width:130px">
-              <button type="button" id="btnAddPerson">新增</button>
+            <div class="field">
+              <label for="eventSelect">選擇活動</label>
+              <select id="eventSelect"><option value="">載入中…</option></select>
+              <div id="eventLoadError" class="banner-error" style="display:none" role="alert"></div>
             </div>
-          </div>
 
-          <!-- 雙層分類結構化展示區 -->
-          <div style="margin-top:16px">
-            <div id="rosterHierarchicalList">請先選擇活動。</div>
+            <!-- 活動密碼驗證設定 -->
+            <div class="field" id="eventPasswordSettingsWrap" style="background:var(--surface2);padding:12px;border-radius:8px;border:1px solid var(--border)">
+              <label style="font-weight:700;margin-bottom:6px">活動個人密碼安全機制</label>
+              <div style="display:flex;flex-direction:column;gap:8px;margin-top:6px">
+                <label class="row checkboxRow" style="align-items:center;gap:8px;cursor:pointer">
+                  <input type="checkbox" id="chkEventRequirePwd">
+                  <span><strong>啟用個人密碼驗證</strong>（成員簽到時須輸入個人專屬密碼）</span>
+                </label>
+                <label class="row checkboxRow" style="align-items:center;gap:8px;cursor:pointer">
+                  <input type="checkbox" id="chkEventAllowChangePwd">
+                  <span><strong>允許成員自行變更密碼</strong>（在活動開放簽到期間可自行修改）</span>
+                </label>
+                <div class="row" style="margin-top:6px">
+                  <button type="button" id="btnSaveEventPwdSettings" class="secondary" style="font-size:13px;padding:6px 12px">儲存密碼設定</button>
+                </div>
+              </div>
+            </div>
+
+            <div class="field">
+              <label>QR Code 連結</label>
+              <div class="copyRow">
+                <input id="qrLink" class="mono copyRow__input" readonly>
+                <button type="button" id="btnCopyQrLink" class="secondary">複製</button>
+              </div>
+              <div id="adminQrHost" class="qrBox qrBox--admin" aria-hidden="true"></div>
+              <div id="adminCurrentCodeHost" style="margin-top:10px"></div>
+              <div id="adminQrCountdown" class="hint" style="margin-top:8px;text-align:center" aria-live="polite"></div>
+              <div class="hint">下方 QR 與連結相同；投影或大圖請至看板頁。</div>
+            </div>
+
+            <div class="field">
+              <label>活動雲端資料夾（Drive）</label>
+              <div class="copyRow">
+                <input id="eventFolderUrl" class="mono copyRow__input" readonly>
+                <button type="button" id="btnCopyFolderUrl" class="secondary">複製</button>
+              </div>
+              <div class="hint">所有活動子資料夾與附件皆在腳本設定的「電子簽到」根資料夾下；格式為 <span class="mono">電子簽到_{活動名稱}_{時間戳}</span>。</div>
+            </div>
+
+            <div class="field">
+              <label>活動設定試算表（建立當下）</label>
+              <div class="copyRow">
+                <input id="eventSettingsUrl" class="mono copyRow__input" readonly placeholder="建立新活動後會顯示連結；其他活動請至雲端資料夾開啟。">
+                <button type="button" id="btnCopySettingsUrl" class="secondary">複製</button>
+              </div>
+            </div>
+
+            <div id="eventOpenStatus" class="pill openStatusPill" style="display:none" role="status" aria-live="polite"></div>
+            <div class="row">
+              <button type="button" id="btnOpen">開放簽到</button>
+              <button type="button" id="btnClose" class="secondary">關閉簽到</button>
+            </div>
+
+            <div class="field">
+              <label>現場簽到驗證碼（選用）</label>
+              <div id="checkinTokenStatus" class="hint">請先選擇活動。</div>
+              <div class="row">
+                <button type="button" id="btnGenCheckinToken" class="secondary">產生／重設驗證碼</button>
+                <button type="button" id="btnClearCheckinToken" class="secondary">清除驗證碼</button>
+              </div>
+              <div id="tokenRotateWrap" class="field" style="margin-top:12px;padding-top:12px;border-top:1px solid rgba(255,255,255,.08)">
+                <label for="tokenRotateSelect">驗證碼自動變更週期（降低離場後仍記得舊碼簽到）</label>
+                <div class="row" style="width:100%;flex-wrap:wrap;gap:8px;align-items:center">
+                  <select id="tokenRotateSelect" style="flex:1;min-width:200px">
+                    <option value="0">不自動變更（僅手動重設時換密鑰）</option>
+                    <option value="30">30 秒</option>
+                    <option value="60">1 分鐘</option>
+                    <option value="300">5 分鐘</option>
+                    <option value="600">10 分鐘</option>
+                    <option value="1800">30 分鐘</option>
+                    <option value="custom">自訂（≥30 秒）</option>
+                  </select>
+                  <input id="tokenRotateCustom" type="number" min="30" step="1" placeholder="秒數" style="width:100px;display:none" aria-label="自訂週期秒數">
+                  <button type="button" id="btnSaveTokenRotate" class="secondary">儲存週期</button>
+                </div>
+                <div id="tokenRotateStatus" class="hint" style="margin-top:8px">請先選擇活動。</div>
+              </div>
+            </div>
+
+            <div id="boardPairAuthWrap" class="field" style="display:none">
+              <label>看板即時授權（6 位一次性授權碼）</label>
+              <div class="row">
+                <button type="button" id="btnCreateBoardPairCode" class="secondary">產生看板授權碼</button>
+              </div>
+              <div id="boardPairCodeDisplay" class="boardPairCodeDisplay" style="display:none" role="status" aria-live="polite"></div>
+            </div>
+
+            <!-- R2 儲存健康度監控與雲端試算表永久同步控制板 -->
+            <div class="field storageHealthDashboard" id="storageHealthDashboard">
+              <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;flex-wrap:wrap;gap:6px">
+                <label style="font-weight:700;font-size:13px;margin:0">平臺快取健康度與儲存階梯</label>
+                <span id="storageTierBadge" class="badge" style="color:var(--ok);border-color:rgba(47,170,93,.3)">即時快取層 (PropertiesService)</span>
+              </div>
+              
+              <!-- 容量進度條 -->
+              <div class="storageProgressBarWrap">
+                <div id="storageProgressBar" class="storageProgressBar" style="width:0%"></div>
+              </div>
+              <div style="display:flex;justify-content:space-between;align-items:center;font-size:11px;color:var(--muted);flex-wrap:wrap;gap:4px">
+                <span id="storageUsageText">已使用 0 KB / 上限 500 KB (0.0%)</span>
+                <span id="storageHealthStatus" class="badge" style="font-size:11px">狀態：良好 HEALTHY</span>
+              </div>
+
+              <div class="row" style="margin-top:12px;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px">
+                <button type="button" id="btnSyncToSheets" class="secondary" style="font-size:13px;padding:6px 14px">
+                  📥 同步至雲端試算表（永久封存庫）
+                </button>
+                <span id="lastSyncTimeText" class="hint" style="font-size:11px">上次手動同步：未執行（系統每日自動排程）</span>
+              </div>
+            </div>
+
+            <div class="toast" id="toast"></div>
           </div>
         </div>
+      </div>
 
-        <div class="card">
-          <h2>每日附件圖片</h2>
-          <div class="field">
-            <label>日期</label>
-            <input id="attachDate" type="date">
+      <!-- 標籤頁 3: 即時看板設定與快速入口 -->
+      <div id="paneBoard" class="admin-tab-pane">
+        <div class="grid">
+          <div class="card">
+            <h2>看板顯示偏好</h2>
+            <div class="field">
+              <label class="row checkboxRow" style="align-items:center;gap:10px;cursor:pointer">
+                <input type="checkbox" id="chkBoardTransitionDefault">
+                <span>名單變更時於看板<strong>中央顯示提示</strong>（全域預設）</span>
+              </label>
+              <div class="row" style="margin-top:10px">
+                <button type="button" id="btnSaveBoardTransition">儲存全域預設</button>
+              </div>
+            </div>
           </div>
-          <div class="field">
-            <label>標題</label>
-            <input id="attachTitle" placeholder="例如：Day 1 小組照片">
+
+          <div class="card">
+            <h2>大螢幕即時簽到看板</h2>
+            <p class="hint">支援 100vw 全螢幕多欄流體排版、階層分組折疊展開與秒級自動更新。</p>
+            <div class="row" style="margin-top:12px">
+              <a id="btnAdminOpenBoard" href="?page=board" target="_blank" class="secondary" style="display:inline-flex;align-items:center;gap:6px;padding:10px 16px;text-decoration:none;font-weight:600;font-size:14px">
+                📊 開啟即時簽到看板 ↗
+              </a>
+            </div>
           </div>
-          <div class="field">
-            <label>上傳圖片</label>
-            <input id="attachFile" type="file" accept="image/*">
-          </div>
-          <div class="row">
-            <button type="button" id="btnUploadAttach">上傳並綁定</button>
-            <button type="button" id="btnRefreshAttach" class="secondary">重新整理</button>
-          </div>
-          <div id="attachList" class="list">請先選擇活動。</div>
         </div>
       </div>
     </div>
@@ -244,11 +305,11 @@
         <div class="field" style="margin-top:14px">
           <label style="font-weight:700">安全與密碼設定</label>
           <div style="display:flex;flex-direction:column;gap:8px;margin-top:6px">
-            <label class="row" style="align-items:center;gap:8px;cursor:pointer">
+            <label class="row checkboxRow" style="align-items:center;gap:8px;cursor:pointer">
               <input type="checkbox" id="createEventRequirePwd">
               <span>啟用個人密碼驗證（簽到時需輸入密碼）</span>
             </label>
-            <label class="row" style="align-items:center;gap:8px;cursor:pointer">
+            <label class="row checkboxRow" style="align-items:center;gap:8px;cursor:pointer">
               <input type="checkbox" id="createEventAllowChangePwd">
               <span>允許成員於活動期間自行變更密碼</span>
             </label>
@@ -295,6 +356,36 @@
       </div>
     </div>
 
+    <!-- 新增分類 / 子分類彈窗 -->
+    <div id="createGroupModal" class="appModalBackdrop" role="dialog" aria-modal="true" aria-labelledby="createGroupModalTitle">
+      <div class="appModalDialog">
+        <div class="appModalHeader">
+          <h3 id="createGroupModalTitle">新增分類 / 子分類</h3>
+          <button type="button" class="appModalClose" id="btnCloseCreateGroupModal">&times;</button>
+        </div>
+        <div class="field">
+          <label for="createGroupName">分類名稱（必填）</label>
+          <input type="text" id="createGroupName" placeholder="例如：行政處、資訊科、第一小隊" autofocus>
+        </div>
+        <div class="field">
+          <label for="createGroupParent">上層所屬分類（選填）</label>
+          <select id="createGroupParent">
+            <option value="">無（設為最頂層根分類）</option>
+          </select>
+          <div class="hint">可選擇任意層級作為父分類，支援處 > 科 > 組 > 小隊等無限層級階層。</div>
+        </div>
+        <div class="field">
+          <label for="createGroupSort">排序權重（數字愈小愈前）</label>
+          <input type="number" id="createGroupSort" value="0" min="0" step="1">
+        </div>
+        <div id="createGroupErr" class="banner-error" style="display:none;margin-top:10px" role="alert"></div>
+        <div class="row" style="margin-top:18px;justify-content:flex-end">
+          <button type="button" id="btnCancelCreateGroup" class="secondary">取消</button>
+          <button type="button" id="btnSubmitCreateGroup">建立分類</button>
+        </div>
+      </div>
+    </div>
+
     <!-- 編輯人員彈窗 -->
     <div id="editPersonModal" class="appModalBackdrop" role="dialog" aria-modal="true" aria-labelledby="editPersonModalTitle">
       <div class="appModalDialog">
@@ -312,7 +403,7 @@
           <select id="editPersonGroup"></select>
         </div>
         <div class="field">
-          <label class="row" style="align-items:center;gap:8px;cursor:pointer">
+          <label class="row checkboxRow" style="align-items:center;gap:8px;cursor:pointer">
             <input type="checkbox" id="editPersonEnabled">
             <span>人員啟用狀態（取消勾選即停用簽到）</span>
           </label>
@@ -711,177 +802,241 @@
         return ($('#eventSelect').value || '').trim();
       }
 
-      function renderGroups(groups){
-        if (!groups || !groups.length) {
-          $('#groupList').innerHTML = '<div class="hint">尚未建立分組。</div>';
-          $('#personGroup').innerHTML = '<option value="">未分組</option>';
-          if ($('#editPersonGroup')) $('#editPersonGroup').innerHTML = '<option value="">未分組</option>';
-          return;
+      var adminCollapsedTreeNodes = new Set();
+      function loadAdminCollapsedTreeNodes(){
+        adminCollapsedTreeNodes.clear();
+        try {
+          var eid = getSelectedEventId();
+          var raw = localStorage.getItem('adminCollapsedNodes_' + eid);
+          if (raw) {
+            var arr = JSON.parse(raw);
+            if (Array.isArray(arr)) arr.forEach(function(k){ adminCollapsedTreeNodes.add(String(k)); });
+          }
+        } catch (_e) {}
+      }
+      function saveAdminCollapsedTreeNodes(){
+        try {
+          var eid = getSelectedEventId();
+          localStorage.setItem('adminCollapsedNodes_' + eid, JSON.stringify(Array.from(adminCollapsedTreeNodes)));
+        } catch (_e) {}
+      }
+
+      function openCreateGroupModal(parentGroupId, parentGroupName){
+        var nameInput = $('#createGroupName');
+        if (nameInput) {
+          nameInput.value = '';
+          nameInput.focus();
         }
-        $('#groupList').innerHTML = groups.map(g => `
-          <div class="listRow">
-            <div>
-              <div class="name">${esc(g.category)}｜${esc(g.groupName)}</div>
-              <div class="meta mono">${esc(g.groupId)}</div>
-            </div>
-            <div class="right">
-              <button type="button" class="danger" data-del-group="${esc(g.groupId)}">刪除</button>
-            </div>
-          </div>
-        `).join('');
+        if ($('#createGroupSort')) $('#createGroupSort').value = '0';
+        if ($('#createGroupErr')) $('#createGroupErr').style.display = 'none';
+        var sel = $('#createGroupParent');
+        if (sel) {
+          sel.value = parentGroupId || '';
+        }
+        var m = $('#createGroupModal');
+        if (m) m.classList.add('open');
+      }
 
-        const groupOptions = '<option value="">未分組</option>' + groups.map(g => `<option value="${esc(g.groupId)}">${esc(g.category)}｜${esc(g.groupName)}</option>`).join('');
-        $('#personGroup').innerHTML = groupOptions;
-        if ($('#editPersonGroup')) $('#editPersonGroup').innerHTML = groupOptions;
+      function closeCreateGroupModal(){
+        var m = $('#createGroupModal');
+        if (m) m.classList.remove('open');
+      }
 
-        $all('[data-del-group]').forEach(btn => {
-          btn.addEventListener('click', async () => {
-            const groupId = btn.getAttribute('data-del-group');
-            if (!confirm('確定刪除分組？（需先移除綁定人員）')) return;
+      async function refreshStorageHealth(eventId){
+        if (!eventId) return;
+        try {
+          var health = await api('adminGetStorageHealth', eventId);
+          if (!health) return;
+          var bar = $('#storageProgressBar');
+          var usageText = $('#storageUsageText');
+          var tierBadge = $('#storageTierBadge');
+          var statusBadge = $('#storageHealthStatus');
+
+          var pct = Math.min(100, Math.max(0, Number(health.percent || 0)));
+          if (bar) {
+            bar.style.width = pct + '%';
+            bar.classList.toggle('is-warning', health.status === 'WARNING');
+            bar.classList.toggle('is-critical', health.status === 'CRITICAL');
+          }
+          if (usageText) {
+            var usedKb = (Number(health.usedBytes || 0) / 1024).toFixed(1);
+            var maxKb = (Number(health.maxBytes || 512000) / 1024).toFixed(0);
+            usageText.textContent = '已使用 ' + usedKb + ' KB / 上限 ' + maxKb + ' KB (' + pct.toFixed(1) + '%)';
+          }
+          if (tierBadge) {
+            if (health.tier === 'drive') {
+              tierBadge.textContent = '擴充階梯 (Google Drive Overflow)';
+              tierBadge.style.color = '#f59e0b';
+              tierBadge.style.borderColor = 'rgba(245, 158, 11, 0.4)';
+            } else {
+              tierBadge.textContent = '即時快取層 (PropertiesService)';
+              tierBadge.style.color = 'var(--ok)';
+              tierBadge.style.borderColor = 'rgba(47,170,93,.3)';
+            }
+          }
+          if (statusBadge) {
+            if (health.status === 'CRITICAL') {
+              statusBadge.textContent = '狀態：緊繃 CRITICAL';
+              statusBadge.style.color = 'var(--bad)';
+            } else if (health.status === 'WARNING') {
+              statusBadge.textContent = '狀態：注意 WARNING';
+              statusBadge.style.color = '#f59e0b';
+            } else {
+              statusBadge.textContent = '狀態：良好 HEALTHY';
+              statusBadge.style.color = 'var(--ok)';
+            }
+          }
+        } catch (_err) {}
+      }
+
+      function renderGroups(groups){
+        var safeGroups = groups || [];
+        var groupOptions = '<option value="">未分組</option>' + safeGroups.map(function(g){
+          var label = g.path || (g.category ? (g.category + (g.groupName ? '｜' + g.groupName : '')) : g.name) || g.groupId;
+          return '<option value="' + esc(g.groupId) + '">' + esc(label) + '</option>';
+        }).join('');
+
+        var pg = $('#personGroup');
+        if (pg) pg.innerHTML = groupOptions;
+        var epg = $('#editPersonGroup');
+        if (epg) epg.innerHTML = groupOptions;
+        var cgp = $('#createGroupParent');
+        if (cgp) {
+          cgp.innerHTML = '<option value="">無（設為最頂層根分類）</option>' + safeGroups.map(function(g){
+            var label = g.path || (g.category ? (g.category + (g.groupName ? '｜' + g.groupName : '')) : g.name) || g.groupId;
+            return '<option value="' + esc(g.groupId) + '">' + esc(label) + '</option>';
+          }).join('');
+        }
+
+        var gl = $('#groupList');
+        if (gl) {
+          if (!safeGroups.length) {
+            gl.innerHTML = '<div class="hint">尚未建立分組。</div>';
+          } else {
+            gl.innerHTML = safeGroups.map(function(g){
+              return (
+                '<div class="listRow">' +
+                  '<div>' +
+                    '<div class="name">' + esc(g.category || '') + '｜' + esc(g.groupName || g.name || '') + '</div>' +
+                    '<div class="meta mono">' + esc(g.groupId) + '</div>' +
+                  '</div>' +
+                  '<div class="right">' +
+                    '<button type="button" class="danger" data-legacy-del-group="' + esc(g.groupId) + '">刪除</button>' +
+                  '</div>' +
+                '</div>'
+              );
+            }).join('');
+            $all('[data-legacy-del-group]').forEach(function(btn){
+              btn.addEventListener('click', async function(){
+                var groupId = btn.getAttribute('data-legacy-del-group');
+                if (!confirm('確定刪除分組？（需先移除綁定人員）')) return;
+                try {
+                  await api('adminDeleteGroup', { groupId: groupId });
+                  await refreshGroupRoster();
+                  setToast('已刪除分組');
+                } catch (err) {
+                  setToast(formatApiError(err), { error: true });
+                }
+              });
+            });
+          }
+        }
+      }
+
+      function bindTreeEvents(host){
+        if (!host) return;
+
+        // 摺疊與展開
+        $all('.treeFolderLeft[data-tree-toggle]').forEach(function(el){
+          el.addEventListener('click', function(){
+            var gid = el.getAttribute('data-tree-toggle');
+            var node = el.closest('.treeFolderNode');
+            if (!node || !gid) return;
+            if (adminCollapsedTreeNodes.has(gid)) {
+              adminCollapsedTreeNodes.delete(gid);
+              node.classList.remove('is-collapsed');
+            } else {
+              adminCollapsedTreeNodes.add(gid);
+              node.classList.add('is-collapsed');
+            }
+            saveAdminCollapsedTreeNodes();
+          });
+        });
+
+        // + 子分類按鈕
+        $all('.btnTreeAddSub[data-add-sub]').forEach(function(btn){
+          btn.addEventListener('click', function(ev){
+            ev.stopPropagation();
+            var parentId = btn.getAttribute('data-add-sub');
+            var parentName = btn.getAttribute('data-sub-name') || '';
+            openCreateGroupModal(parentId, parentName);
+          });
+        });
+
+        // + 成員按鈕
+        $all('.btnTreeAddPerson[data-add-person]').forEach(function(btn){
+          btn.addEventListener('click', function(ev){
+            ev.stopPropagation();
+            var targetGid = btn.getAttribute('data-add-person');
+            var sel = $('#personGroup');
+            if (sel) sel.value = targetGid;
+            var nameInput = $('#personName');
+            if (nameInput) {
+              nameInput.focus();
+              try { nameInput.scrollIntoView({ behavior: 'smooth', block: 'center' }); } catch (_e) {}
+            }
+            setToast('已選擇所屬分類，請輸入成員姓名與密碼後點擊「新增」');
+          });
+        });
+
+        // 刪除分組按鈕
+        $all('.btnTreeDelGroup[data-del-group]').forEach(function(btn){
+          btn.addEventListener('click', async function(ev){
+            ev.stopPropagation();
+            var groupId = btn.getAttribute('data-del-group');
+            var groupHit = (window.__groups || []).find(function(g){ return g.groupId === groupId; });
+            var gName = groupHit ? (groupHit.name || groupHit.groupName || groupHit.category) : '此分類';
+            if (!confirm('確定刪除「' + gName + '」分類？（需無子分類且無綁定成員）')) return;
             try {
-              await api('adminDeleteGroup', { groupId });
+              await api('adminDeleteGroup', { groupId: groupId });
               await refreshGroupRoster();
-              setToast('已刪除分組');
+              setToast('已成功刪除分類：' + gName);
             } catch (err) {
               setToast(formatApiError(err), { error: true });
             }
           });
         });
-      }
 
-      /** 渲染雙層折疊名單：主類別 (category) 卡片 > 子類別 (groupName) 折疊區塊 */
-      function renderHierarchicalRoster(groups, roster){
-        const host = $('#rosterHierarchicalList');
-        if (!host) return;
-
-        if (!roster || !roster.length) {
-          host.innerHTML = '<div class="hint" style="padding:16px;text-align:center">目前活動尚未有名冊資料。請由上方單筆新增或點選「批次匯入名冊」。</div>';
-          return;
-        }
-
-        const groupMap = {};
-        (groups || []).forEach(g => {
-          groupMap[g.groupId] = {
-            category: g.category || '未分類',
-            groupName: g.groupName || '未分組',
-            sort: g.sort || 0
-          };
-        });
-
-        // 依 category > groupName 分群
-        const catMap = {};
-        roster.forEach(p => {
-          const gInfo = groupMap[p.groupId] || { category: '未分類', groupName: '未分組', sort: 999 };
-          const cName = gInfo.category;
-          const gName = gInfo.groupName;
-
-          if (!catMap[cName]) catMap[cName] = { category: cName, groups: {}, totalCount: 0 };
-          catMap[cName].totalCount++;
-
-          if (!catMap[cName].groups[gName]) {
-            catMap[cName].groups[gName] = {
-              groupName: gName,
-              groupId: p.groupId,
-              sort: gInfo.sort,
-              people: []
-            };
-          }
-          catMap[cName].groups[gName].people.push(p);
-        });
-
-        let html = '';
-        const catKeys = Object.keys(catMap).sort((a,b) => a.localeCompare(b, 'zh-Hant'));
-
-        catKeys.forEach(cName => {
-          const cat = catMap[cName];
-          const gKeys = Object.keys(cat.groups).sort((a,b) => {
-            return (cat.groups[a].sort - cat.groups[b].sort) || a.localeCompare(b, 'zh-Hant');
-          });
-
-          html += `
-            <div class="categoryCard">
-              <div class="categoryCard__header">
-                <div>📁 ${esc(cat.category)}</div>
-                <div class="categoryCard__badge">${gKeys.length} 組 / 共 ${cat.totalCount} 人</div>
-              </div>
-          `;
-
-          gKeys.forEach(gName => {
-            const grp = cat.groups[gName];
-            html += `
-              <details open class="subgroupAccordion">
-                <summary class="subgroupAccordion__summary">
-                  <span>📂 ${esc(grp.groupName)}</span>
-                  <span class="badge mono" style="font-size:11px">${grp.people.length} 人</span>
-                </summary>
-                <div class="subgroupAccordion__details">
-            `;
-
-            grp.people.forEach(p => {
-              const pwdBadge = p.hasPassword
-                ? '<span class="badge" style="color:var(--ok);border-color:rgba(47,170,93,.3)">🔒 已設密碼</span>'
-                : '<span class="badge" style="color:var(--muted)">🔓 未設密碼</span>';
-              const statusBadge = p.enabled
-                ? '<span class="badge" style="color:var(--ok)">啟用中</span>'
-                : '<span class="badge" style="color:var(--bad)">已停用</span>';
-
-              html += `
-                <div class="personItemRow">
-                  <div style="flex:1;min-width:0">
-                    <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap">
-                      <strong style="font-size:14px">${esc(p.displayName)}</strong>
-                      ${pwdBadge}
-                      ${statusBadge}
-                    </div>
-                    <div class="meta mono" style="font-size:11px;margin-top:2px">${esc(p.personId)}</div>
-                  </div>
-                  <div class="row" style="gap:6px;flex-shrink:0">
-                    <button type="button" class="secondary" style="font-size:12px;padding:4px 8px;min-height:28px" data-edit-p="${esc(p.personId)}">編輯</button>
-                    <button type="button" class="secondary" style="font-size:12px;padding:4px 8px;min-height:28px" data-reset-pwd-p="${esc(p.personId)}">重設密碼</button>
-                    <button type="button" class="danger" style="font-size:12px;padding:4px 8px;min-height:28px" data-del-p="${esc(p.personId)}">刪除</button>
-                  </div>
-                </div>
-              `;
-            });
-
-            html += `
-                </div>
-              </details>
-            `;
-          });
-
-          html += `</div>`;
-        });
-
-        host.innerHTML = html;
-
-        // 綁定編輯
-        $all('[data-edit-p]').forEach(btn => {
-          btn.addEventListener('click', () => {
-            const pId = btn.getAttribute('data-edit-p');
+        // 編輯人員
+        $all('[data-edit-p]').forEach(function(btn){
+          btn.addEventListener('click', function(ev){
+            ev.stopPropagation();
+            var pId = btn.getAttribute('data-edit-p');
             openEditPersonModal(pId);
           });
         });
 
-        // 綁定重設密碼
-        $all('[data-reset-pwd-p]').forEach(btn => {
-          btn.addEventListener('click', () => {
-            const pId = btn.getAttribute('data-reset-pwd-p');
+        // 重設密碼
+        $all('[data-reset-pwd-p]').forEach(function(btn){
+          btn.addEventListener('click', function(ev){
+            ev.stopPropagation();
+            var pId = btn.getAttribute('data-reset-pwd-p');
             openResetPwdModal(pId);
           });
         });
 
-        // 綁定刪除
-        $all('[data-del-p]').forEach(btn => {
-          btn.addEventListener('click', async () => {
-            const pId = btn.getAttribute('data-del-p');
-            const hit = (window.__roster || []).find(x => x.personId === pId);
-            const name = hit ? hit.displayName : '此人員';
-            if (!confirm(`確定要刪除「${name}」？此操作無法還原。`)) return;
+        // 刪除人員
+        $all('[data-del-p]').forEach(function(btn){
+          btn.addEventListener('click', async function(ev){
+            ev.stopPropagation();
+            var pId = btn.getAttribute('data-del-p');
+            var hit = (window.__roster || []).find(function(x){ return x.personId === pId; });
+            var name = hit ? hit.displayName : '此人員';
+            if (!confirm('確定要刪除「' + name + '」？此操作無法還原。')) return;
             try {
               await api('adminDeletePerson', { personId: pId });
               await refreshGroupRoster();
-              setToast(`已刪除人員 ${name}`);
+              setToast('已刪除人員 ' + name);
             } catch (err) {
               setToast(formatApiError(err), { error: true });
             }
@@ -889,6 +1044,201 @@
         });
       }
 
+      /** 渲染檔案總管式無限層級折疊名冊 */
+      function renderHierarchicalRoster(groups, roster){
+        var host = $('#rosterHierarchicalList');
+        if (!host) return;
+
+        loadAdminCollapsedTreeNodes();
+
+        var safeGroups = groups || [];
+        var safeRoster = roster || [];
+
+        var hintEl = $('#treeStatsHint');
+        if (hintEl) {
+          hintEl.textContent = '共 ' + safeGroups.length + ' 個分類、' + safeRoster.length + ' 位人員';
+        }
+
+        if (!safeGroups.length && !safeRoster.length) {
+          host.innerHTML = '<div class="hint" style="padding:16px;text-align:center">目前活動尚未有名冊與分類資料。請由上方建立根分類或單筆新增成員，亦可點選「批次匯入名冊」。</div>';
+          return;
+        }
+
+        // 1. 建立節點 Map
+        var nodeMap = new Map();
+        var rootNodes = [];
+
+        safeGroups.forEach(function(g){
+          nodeMap.set(g.groupId, {
+            groupId: g.groupId,
+            name: g.name || g.groupName || g.category || '未命名分組',
+            parentId: g.parentId || '',
+            path: g.path || g.name || '',
+            depth: Number(g.depth || 0),
+            sort: Number(g.sort || 0),
+            category: g.category || '',
+            groupName: g.groupName || '',
+            children: [],
+            members: []
+          });
+        });
+
+        // 2. 組裝樹狀架構
+        safeGroups.forEach(function(g){
+          var node = nodeMap.get(g.groupId);
+          if (node.parentId && nodeMap.has(node.parentId)) {
+            nodeMap.get(node.parentId).children.push(node);
+          } else {
+            rootNodes.push(node);
+          }
+        });
+
+        // 3. 掛載人員
+        var unassigned = [];
+        safeRoster.forEach(function(p){
+          var gid = String(p.groupId || '').trim();
+          if (gid && nodeMap.has(gid)) {
+            nodeMap.get(gid).members.push(p);
+          } else {
+            unassigned.push(p);
+          }
+        });
+
+        // 4. 排序函式
+        function sortTreeNodes(nodes){
+          nodes.sort(function(a, b){
+            return (a.sort - b.sort) || a.name.localeCompare(b.name, 'zh-Hant');
+          });
+          nodes.forEach(function(n){
+            if (n.members) {
+              n.members.sort(function(a, b){
+                return (Number(a.sort || 0) - Number(b.sort || 0)) || String(a.displayName || '').localeCompare(String(b.displayName || ''), 'zh-Hant');
+              });
+            }
+            if (n.children && n.children.length) {
+              sortTreeNodes(n.children);
+            }
+          });
+        }
+        sortTreeNodes(rootNodes);
+        unassigned.sort(function(a, b){
+          return (Number(a.sort || 0) - Number(b.sort || 0)) || String(a.displayName || '').localeCompare(String(b.displayName || ''), 'zh-Hant');
+        });
+
+        // 5. 遞迴渲染節點
+        function renderNodeHtml(node){
+          var isCollapsed = adminCollapsedTreeNodes.has(node.groupId);
+          var subCount = node.children ? node.children.length : 0;
+          var memCount = node.members ? node.members.length : 0;
+
+          var childrenHtml = '';
+          if (node.children && node.children.length) {
+            childrenHtml += node.children.map(renderNodeHtml).join('');
+          }
+          if (node.members && node.members.length) {
+            childrenHtml += node.members.map(function(p){
+              var pwdBadge = p.hasPassword
+                ? '<span class="badge" style="color:var(--ok);border-color:rgba(47,170,93,.3)">🔒 已設密碼</span>'
+                : '<span class="badge" style="color:var(--muted)">🔓 未設密碼</span>';
+              var statusBadge = p.enabled
+                ? '<span class="badge" style="color:var(--ok)">啟用中</span>'
+                : '<span class="badge" style="color:var(--bad)">已停用</span>';
+
+              return (
+                '<div class="treePersonRow" data-person-id="' + esc(p.personId) + '" style="--tree-depth:' + node.depth + '">' +
+                  '<div class="treePersonLeft">' +
+                    '<span class="treePersonIcon">👤</span>' +
+                    '<span class="treePersonName">' + esc(p.displayName) + '</span>' +
+                    pwdBadge +
+                    statusBadge +
+                    '<span class="meta mono" style="font-size:11px">' + esc(p.personId) + '</span>' +
+                  '</div>' +
+                  '<div class="treePersonActions">' +
+                    '<button type="button" class="secondary" data-edit-p="' + esc(p.personId) + '">編輯</button>' +
+                    '<button type="button" class="secondary" data-reset-pwd-p="' + esc(p.personId) + '">重設密碼</button>' +
+                    '<button type="button" class="danger" data-del-p="' + esc(p.personId) + '">刪除</button>' +
+                  '</div>' +
+                '</div>'
+              );
+            }).join('');
+          }
+
+          return (
+            '<div class="treeFolderNode ' + (isCollapsed ? 'is-collapsed' : '') + '" data-group-id="' + esc(node.groupId) + '" style="--tree-depth:' + node.depth + '">' +
+              '<div class="treeFolderRow">' +
+                '<div class="treeFolderLeft" data-tree-toggle="' + esc(node.groupId) + '">' +
+                  '<span class="treeToggleIcon">▼</span>' +
+                  '<span class="treeFolderIcon">📁</span>' +
+                  '<span class="treeFolderName" title="' + esc(node.path || node.name) + '">' + esc(node.name) + '</span>' +
+                  '<span class="treeCountBadge">' + subCount + ' 子分類 / ' + memCount + ' 人</span>' +
+                '</div>' +
+                '<div class="treeActions">' +
+                  '<button type="button" class="btnTreeAddSub secondary" data-add-sub="' + esc(node.groupId) + '" data-sub-name="' + esc(node.name) + '" title="在此新增子分類">+ 子分類</button>' +
+                  '<button type="button" class="btnTreeAddPerson secondary" data-add-person="' + esc(node.groupId) + '" title="在此分類新增成員">+ 成員</button>' +
+                  '<button type="button" class="btnTreeDelGroup danger" data-del-group="' + esc(node.groupId) + '" title="刪除此分類">刪除</button>' +
+                '</div>' +
+              '</div>' +
+              '<div class="treeChildrenContainer">' +
+                childrenHtml +
+              '</div>' +
+            '</div>'
+          );
+        }
+
+        var html = rootNodes.map(renderNodeHtml).join('');
+
+        if (unassigned.length) {
+          var unKey = 'unassigned_root';
+          var isUnCollapsed = adminCollapsedTreeNodes.has(unKey);
+          var unRows = unassigned.map(function(p){
+            var pwdBadge = p.hasPassword
+              ? '<span class="badge" style="color:var(--ok);border-color:rgba(47,170,93,.3)">🔒 已設密碼</span>'
+              : '<span class="badge" style="color:var(--muted)">🔓 未設密碼</span>';
+            var statusBadge = p.enabled
+              ? '<span class="badge" style="color:var(--ok)">啟用中</span>'
+              : '<span class="badge" style="color:var(--bad)">已停用</span>';
+
+            return (
+              '<div class="treePersonRow" data-person-id="' + esc(p.personId) + '" style="--tree-depth:0">' +
+                '<div class="treePersonLeft">' +
+                  '<span class="treePersonIcon">👤</span>' +
+                  '<span class="treePersonName">' + esc(p.displayName) + '</span>' +
+                  pwdBadge +
+                  statusBadge +
+                  '<span class="meta mono" style="font-size:11px">' + esc(p.personId) + '</span>' +
+                '</div>' +
+                '<div class="treePersonActions">' +
+                  '<button type="button" class="secondary" data-edit-p="' + esc(p.personId) + '">編輯</button>' +
+                  '<button type="button" class="secondary" data-reset-pwd-p="' + esc(p.personId) + '">重設密碼</button>' +
+                  '<button type="button" class="danger" data-del-p="' + esc(p.personId) + '">刪除</button>' +
+                '</div>' +
+              '</div>'
+            );
+          }).join('');
+
+          html += (
+            '<div class="treeFolderNode ' + (isUnCollapsed ? 'is-collapsed' : '') + '" data-group-id="' + esc(unKey) + '" style="--tree-depth:0">' +
+              '<div class="treeFolderRow">' +
+                '<div class="treeFolderLeft" data-tree-toggle="' + esc(unKey) + '">' +
+                  '<span class="treeToggleIcon">▼</span>' +
+                  '<span class="treeFolderIcon">📁</span>' +
+                  '<span class="treeFolderName">未分組成員</span>' +
+                  '<span class="treeCountBadge">0 子分類 / ' + unassigned.length + ' 人</span>' +
+                '</div>' +
+                '<div class="treeActions"></div>' +
+              '</div>' +
+              '<div class="treeChildrenContainer">' +
+                unRows +
+              '</div>' +
+            '</div>'
+          );
+        }
+
+        host.innerHTML = html;
+        bindTreeEvents(host);
+      }
+
+      /* R3 DEACTIVATED: 附件系統 UI 停用
       function renderAttachments(list){
         if (!list || !list.length) {
           $('#attachList').innerHTML = '<div class="hint">目前沒有附件。</div>';
@@ -916,6 +1266,8 @@
           });
         });
       }
+      */
+      function renderAttachments(_list){}
 
       async function refreshGroupRoster(reqSeq){
         const eventId = getSelectedEventId();
@@ -929,23 +1281,27 @@
         renderGroups(groups);
         window.__roster = roster;
         renderHierarchicalRoster(groups, roster);
+        void refreshStorageHealth(eventId);
       }
 
       async function refreshEventData(eventId, reqSeq){
         if (!eventId) return;
-        const [groups, roster, attachments] = await Promise.all([
+        // R3 最佳化：移除 adminListDailyAttachments RPC 調用，加速頁面載入且不耗用 Drive 配額
+        const [groups, roster] = await Promise.all([
           api('adminListGroups', eventId),
-          api('adminListRoster', eventId),
-          api('adminListDailyAttachments', eventId)
+          api('adminListRoster', eventId)
+          /* R3 DEACTIVATED: api('adminListDailyAttachments', eventId) */
         ]);
         if (reqSeq != null && reqSeq !== adminEventReqSeq) return;
         window.__groups = groups;
         renderGroups(groups);
         window.__roster = roster;
         renderHierarchicalRoster(groups, roster);
-        renderAttachments(attachments);
+        void refreshStorageHealth(eventId);
+        /* R3 DEACTIVATED: renderAttachments(attachments); */
       }
 
+      /* R3 DEACTIVATED: 附件重新整理函式停用
       async function refreshAttachments(reqSeq){
         const eventId = getSelectedEventId();
         if (!eventId) return;
@@ -953,6 +1309,8 @@
         if (reqSeq != null && reqSeq !== adminEventReqSeq) return;
         renderAttachments(list);
       }
+      */
+      async function refreshAttachments(_reqSeq){}
 
       // 建立新活動彈窗控制
       $('#btnOpenCreateEventModal').addEventListener('click', () => {
@@ -1333,6 +1691,7 @@
         setToast('已新增人員');
       });
 
+      /* R3 DEACTIVATED: 附件系統已停用，註解事件監聽避免 null pointer 異常
       $('#btnUploadAttach').addEventListener('click', function(){
         const eventId = getSelectedEventId();
         if (!eventId) return setToast('請先選擇活動。');
@@ -1362,9 +1721,140 @@
       });
 
       $('#btnRefreshAttach').addEventListener('click', refreshAttachments);
+      */
+
+      // R1 樹狀分類操作控制
+      var btnRootGrp = $('#btnTreeAddRootGroup');
+      if (btnRootGrp) {
+        btnRootGrp.addEventListener('click', function(){
+          var eventId = getSelectedEventId();
+          if (!eventId) return setToast('請先選擇活動。', { error: true });
+          openCreateGroupModal('', '');
+        });
+      }
+
+      var btnCloseGrp = $('#btnCloseCreateGroupModal');
+      if (btnCloseGrp) btnCloseGrp.addEventListener('click', closeCreateGroupModal);
+      var btnCancelGrp = $('#btnCancelCreateGroup');
+      if (btnCancelGrp) btnCancelGrp.addEventListener('click', closeCreateGroupModal);
+
+      var btnSubmitGrp = $('#btnSubmitCreateGroup');
+      if (btnSubmitGrp) {
+        btnSubmitGrp.addEventListener('click', async function(){
+          var eventId = getSelectedEventId();
+          if (!eventId) return setToast('請先選擇活動。', { error: true });
+          var name = ($('#createGroupName') ? $('#createGroupName').value : '').trim();
+          var parentId = ($('#createGroupParent') ? $('#createGroupParent').value : '').trim();
+          var sort = parseInt($('#createGroupSort') ? $('#createGroupSort').value : '0', 10) || 0;
+          var errEl = $('#createGroupErr');
+
+          if (!name) {
+            if (errEl) {
+              errEl.textContent = '請輸入分類名稱。';
+              errEl.style.display = 'block';
+            }
+            return;
+          }
+          if (errEl) errEl.style.display = 'none';
+
+          await withButtonBusy(btnSubmitGrp, async function(){
+            try {
+              await api('adminCreateGroup', { eventId: eventId, name: name, parentId: parentId, sort: sort });
+              closeCreateGroupModal();
+              await refreshGroupRoster();
+              setToast('已成功建立分類：' + name);
+            } catch (err) {
+              if (errEl) {
+                errEl.textContent = formatApiError(err);
+                errEl.style.display = 'block';
+              }
+            }
+          }, { busyText: '建立中…' });
+        });
+      }
+
+      var btnTreeExp = $('#btnTreeExpandAll');
+      if (btnTreeExp) {
+        btnTreeExp.addEventListener('click', function(){
+          adminCollapsedTreeNodes.clear();
+          saveAdminCollapsedTreeNodes();
+          $all('.treeFolderNode').forEach(function(el){ el.classList.remove('is-collapsed'); });
+        });
+      }
+      var btnTreeCol = $('#btnTreeCollapseAll');
+      if (btnTreeCol) {
+        btnTreeCol.addEventListener('click', function(){
+          $all('.treeFolderNode[data-group-id]').forEach(function(el){
+            var gid = el.getAttribute('data-group-id');
+            if (gid) adminCollapsedTreeNodes.add(gid);
+            el.classList.add('is-collapsed');
+          });
+          saveAdminCollapsedTreeNodes();
+        });
+      }
+
+      // R2 雲端試算表永久同步控制
+      var btnSync = $('#btnSyncToSheets');
+      if (btnSync) {
+        btnSync.addEventListener('click', async function(){
+          var eventId = getSelectedEventId();
+          if (!eventId) {
+            setToast('請先選擇活動。', { error: true });
+            return;
+          }
+          await withButtonBusy(btnSync, async function(){
+            try {
+              var res = await api('adminSyncToSheets', eventId);
+              var timeStr = new Date().toLocaleString('zh-TW', { hour12: false });
+              var lastSync = $('#lastSyncTimeText');
+              if (lastSync) {
+                var gCount = (res && res.groupsCount != null) ? res.groupsCount : (window.__groups || []).length;
+                var rCount = (res && res.rosterCount != null) ? res.rosterCount : (window.__roster || []).length;
+                lastSync.textContent = '上次手動同步：' + timeStr + '（共 ' + gCount + ' 分類、' + rCount + ' 成員）';
+              }
+              setToast('已成功將資料永久同步至 Google 雲端試算表！');
+              await refreshStorageHealth(eventId);
+            } catch (err) {
+              setToast(formatApiError(err), { error: true });
+            }
+          }, { busyText: '同步寫入中…' });
+        });
+      }
+
+      // R6 行動端 3-Tab 切換邏輯 (375px ~ 412px)
+      function initMobileTabs(){
+        var tabs = $all('.mobileTabItem');
+        var panes = $all('.admin-tab-pane');
+
+        function switchTab(targetId){
+          tabs.forEach(function(t){
+            var active = t.getAttribute('data-target-pane') === targetId;
+            t.classList.toggle('is-active', active);
+            t.setAttribute('aria-selected', active ? 'true' : 'false');
+          });
+          panes.forEach(function(p){
+            p.classList.toggle('is-active', p.id === targetId);
+          });
+          try { sessionStorage.setItem('adminActiveTab', targetId); } catch (_e) {}
+        }
+
+        tabs.forEach(function(btn){
+          btn.addEventListener('click', function(){
+            var targetId = btn.getAttribute('data-target-pane');
+            if (targetId) switchTab(targetId);
+          });
+        });
+
+        try {
+          var saved = sessionStorage.getItem('adminActiveTab');
+          if (saved && $('#' + saved)) switchTab(saved);
+        } catch (_e) {}
+      }
+
       syncTokenRotateCustomVisibility();
 
       (async () => {
+        initMobileTabs();
         await loadBoardTransitionDefaultUi();
         const eventsOk = await loadEvents();
         updateAdminEventOpenUi();

@@ -1,4 +1,11 @@
 /**
+ * ============================================================================
+ * BoardService.gs
+ * 即時看板服務：公開活動清單、Fast Store 秒級名冊讀取與即時簽到樹狀狀態彙整
+ * ============================================================================
+ */
+
+/**
  * 匿名可讀活動 id／名稱／是否開放簽到（不含 Drive 連結）。
  * @param {boolean} [onlyOpen] 若為 true，僅回傳「已開放簽到」的活動（簽到頁下拉用，降低活動清單外洩）。
  */
@@ -6,7 +13,7 @@ function publicListBoardEvents(onlyOpen) {
   const filterOpen = onlyOpen === true;
   const ss = getDb_();
   const sh = ss.getSheetByName(SHEETS.EVENTS);
-  const rows = sh.getDataRange().getValues();
+  const rows = sh ? sh.getDataRange().getValues() : [];
 
   // 一次讀取 Config 表，避免 N+1 呼叫 getEventCheckinToken_
   const shCfg = ss.getSheetByName(SHEETS.CONFIG);
@@ -41,6 +48,14 @@ function publicListBoardEvents(onlyOpen) {
   return { ok: true, events: out };
 }
 
+/**
+ * 取得活動之完整即時看板狀態（分組、名冊、樹狀階層與個人簽到狀態）
+ * 分組與名冊改自 Fast Store 讀取（0 試算表 RPC，延遲 < 100ms）
+ * 同時回傳舊版向下相容的 groups/categories 與全新無限階層樹狀 tree 物件
+ * @param {string} eventId
+ * @param {string} token
+ * @returns {Object}
+ */
 function publicGetBoardState(eventId, token) {
   const eid = String(eventId || '').trim();
   assertPublicEventTokenOrBoardSession_(eid, token);
@@ -67,85 +82,94 @@ function publicGetBoardState(eventId, token) {
     }
   }
 
-  const ss = getDb_();
-  const shGroups = ss.getSheetByName(SHEETS.GROUPS);
-  const shRoster = ss.getSheetByName(SHEETS.ROSTER);
-  const shStatus = ss.getSheetByName(SHEETS.STATUS);
+  // 1. 從 Fast Store 讀取分組與名冊（消除對 SHEETS.GROUPS 與 SHEETS.ROSTER 之全表掃描 RPC）
+  const store = fastStoreGet(eid);
+  const groups = store.groups || [];
+  const roster = store.roster || [];
 
-  const groupRows = shGroups.getDataRange().getValues();
-  const rosterRows = shRoster.getDataRange().getValues();
-  const statusRows = shStatus.getDataRange().getValues();
-
-  const groups = [];
-  const groupMap = new Map(); // groupId -> {category, groupName, sort}
-  for (let i = 1; i < groupRows.length; i++) {
-    const r = groupRows[i];
-    if (String(r[1]) !== String(eid)) continue;
-    const groupId = String(r[0] || '');
-    if (!groupId) continue;
-    const norm = normalizeGroupCategoryAndName_(String(r[2] || ''), String(r[3] || ''));
-    const g = {
-      groupId,
-      category: norm.category,
-      groupName: norm.groupName,
-      sort: Number(r[4] || 0),
-    };
-    groupMap.set(groupId, g);
-    groups.push(g);
-  }
-
-  groups.sort((a, b) => {
-    const c = a.category.localeCompare(b.category, 'zh-Hant');
-    if (c !== 0) return c;
-    return (a.sort - b.sort) || a.groupName.localeCompare(b.groupName, 'zh-Hant');
+  const groupMap = new Map();
+  groups.forEach(g => {
+    groupMap.set(g.groupId, {
+      groupId: g.groupId,
+      parentId: g.parentId || '',
+      name: g.name || g.groupName || DEFAULT_GROUP_NAME_,
+      category: g.category || (g.path ? g.path.split('/')[0] : DEFAULT_GROUP_CATEGORY_),
+      groupName: g.groupName || g.name || DEFAULT_GROUP_NAME_,
+      sort: Number(g.sort || 0),
+      depth: Number(g.depth || 0),
+      path: g.path || g.name || g.groupName || '',
+    });
   });
 
-  const statusMap = new Map(); // `${eid}::${personId}` -> {status,lastTime}
+  // 2. 從試算表僅讀取即時狀態表 STATUS
+  const ss = getDb_();
+  const shStatus = ss.getSheetByName(SHEETS.STATUS);
+  const statusRows = shStatus ? shStatus.getDataRange().getValues() : [];
+
+  const statusMap = new Map(); // `${eid}::${personId}` -> {status, lastTime}
   for (let i = 1; i < statusRows.length; i++) {
     const r = statusRows[i];
-    if (String(r[0]) !== String(eid)) continue;
+    if (String(r[0]) !== eid) continue;
     const personId = String(r[1] || '');
     if (!personId) continue;
-    statusMap.set(eid + '::' + personId, { status: String(r[2] || 'NOT_YET'), lastTime: cellToPlain_(r[3]) });
+    statusMap.set(eid + '::' + personId, {
+      status: String(r[2] || 'NOT_YET'),
+      lastTime: cellToPlain_(r[3]),
+    });
   }
 
-  const peopleByGroup = new Map(); // groupId -> []
+  // 3. 組裝人員資料至各分組
+  const peopleByGroup = new Map();
   const unknownGroupLabels = normalizeGroupCategoryAndName_('', '');
-  for (let i = 1; i < rosterRows.length; i++) {
-    const r = rosterRows[i];
-    if (String(r[1]) !== String(eid)) continue;
-    if (String(r[5]) === 'FALSE' || r[5] === false) continue;
-    const groupId = String(r[2] || '');
-    const displayName = String(r[3] || '');
-    const sort = Number(r[6] || 0);
-    const st = statusMap.get(eid + '::' + String(r[0])) || { status: 'NOT_YET', lastTime: '' };
+
+  roster.forEach(r => {
+    if (r.enabled === false) return; // 僅納入啟用成員
+    const personId = String(r.personId);
+    const groupId = String(r.groupId || '');
+    const displayName = String(r.displayName || '');
+    const sort = Number(r.sort || 0);
+    const st = statusMap.get(eid + '::' + personId) || { status: 'NOT_YET', lastTime: '' };
     const g = groupMap.get(groupId) || {
       category: unknownGroupLabels.category,
       groupName: unknownGroupLabels.groupName,
       sort: 9999,
+      path: '',
+      depth: 0,
     };
+
     const p = {
-      personId: String(r[0] || ''),
-      displayName,
+      personId: personId,
+      displayName: displayName,
       category: g.category,
       groupName: g.groupName,
       status: st.status,
       statusLabel: statusLabel_(st.status),
       lastTime: st.lastTime ? String(st.lastTime) : '',
-      sort,
+      sort: sort,
+      groupPath: g.path,
     };
+
     if (!peopleByGroup.has(groupId)) peopleByGroup.set(groupId, []);
     peopleByGroup.get(groupId).push(p);
-  }
+  });
 
-  const outGroups = groups.map(g => ({
+  // 4. 構建向下相容的 outGroups
+  const sortedGroups = groups.slice().sort((a, b) => {
+    const c = (a.category || '').localeCompare(b.category || '', 'zh-Hant');
+    if (c !== 0) return c;
+    return (a.sort - b.sort) || (a.groupName || '').localeCompare(b.groupName || '', 'zh-Hant');
+  });
+
+  const outGroups = sortedGroups.map(g => ({
     category: g.category,
     groupName: g.groupName,
     groupId: g.groupId,
+    path: g.path,
+    depth: g.depth,
     people: (peopleByGroup.get(g.groupId) || []).sort((a, b) => (a.sort - b.sort) || a.displayName.localeCompare(b.displayName, 'zh-Hant')),
   }));
 
-  // 把未分組的人也加到最後（如果有）
+  // 未分類人員掛載至末尾
   const ungrouped = peopleByGroup.get('') || [];
   if (ungrouped.length) {
     const u = normalizeGroupCategoryAndName_('', '');
@@ -153,10 +177,13 @@ function publicGetBoardState(eventId, token) {
       category: u.category,
       groupName: u.groupName,
       groupId: '',
+      path: u.category,
+      depth: 0,
       people: ungrouped.sort((a, b) => (a.sort - b.sort) || a.displayName.localeCompare(b.displayName, 'zh-Hant')),
     });
   }
 
+  // 5. 構建向下相容的 outCategories
   const categoryMap = new Map();
   for (let i = 0; i < outGroups.length; i++) {
     const og = outGroups[i];
@@ -191,12 +218,39 @@ function publicGetBoardState(eventId, token) {
     return c;
   });
 
-  /** `now` 用字串避免 HtmlService 客戶端序列化含 Date 物件時整包變 null。快取僅存名單狀態本體，簽到網址與失效倒數每次回傳時再併入，避免短 TTL 快取內文字過期。 */
+  // 6. 構建全新無限層級樹狀目錄結構 (tree: { rootFolders, unassignedMembers })
+  const tree = buildFolderTree_(groups, roster, statusMap);
+
   const nowStr = cellToPlain_(new Date());
-  const coreForCache = { ok: true, now: nowStr, groups: outGroups, categories: outCategories };
+  const coreForCache = {
+    ok: true,
+    now: nowStr,
+    groups: outGroups,
+    categories: outCategories,
+    roster: roster.filter(r => r.enabled !== false).map(r => {
+      const pid = String(r.personId);
+      const st = statusMap.get(eid + '::' + pid) || { status: 'NOT_YET', lastTime: '' };
+      const g = groupMap.get(String(r.groupId || '')) || {};
+      return {
+        personId: pid,
+        displayName: String(r.displayName || ''),
+        groupId: String(r.groupId || ''),
+        category: g.category || unknownGroupLabels.category,
+        groupName: g.groupName || unknownGroupLabels.groupName,
+        status: st.status,
+        statusLabel: statusLabel_(st.status),
+        lastTime: st.lastTime ? String(st.lastTime) : '',
+        sort: Number(r.sort || 0),
+        groupPath: g.path || '',
+      };
+    }),
+    tree: tree,
+  };
+
   const meta = getBoardCheckinQrExpiryMeta_(eid);
   const currentCheckinCode = getCurrentCheckinCodeForDisplay_(eid);
   const payload = Object.assign({}, coreForCache, { checkinUrl: checkinUrl, currentCheckinCode: currentCheckinCode }, meta);
+
   if (ttl > 0 && eid) {
     try {
       const cache = CacheService.getScriptCache();
@@ -208,6 +262,6 @@ function publicGetBoardState(eventId, token) {
       // 略過快取寫入（內容過大或配額）
     }
   }
+
   return payload;
 }
-
