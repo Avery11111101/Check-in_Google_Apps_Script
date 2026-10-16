@@ -271,15 +271,6 @@
             </div>
           </div>
 
-          <div class="card">
-            <h2>大螢幕即時簽到看板</h2>
-            <p class="hint">支援 100vw 全螢幕多欄流體排版、階層分組折疊展開與秒級自動更新。</p>
-            <div class="row" style="margin-top:12px">
-              <a id="btnAdminOpenBoard" href="?page=board" target="_blank" class="secondary" style="display:inline-flex;align-items:center;gap:6px;padding:10px 16px;text-decoration:none;font-weight:600;font-size:14px">
-                📊 開啟即時簽到看板 ↗
-              </a>
-            </div>
-          </div>
         </div>
       </div>
     </div>
@@ -343,10 +334,11 @@
 業務部,業務一組,張三,Secret888"></textarea>
           <div class="hint" style="margin-top:6px">
             格式說明：每行一筆。<br>
+            • 階層路徑：<strong>分類路徑,姓名,個人密碼</strong>（如：<code>行政處/資訊科/系統組,王大明,Pass123</code>）<br>
             • 四欄位：<strong>主類別,子類別,姓名,個人密碼</strong>（密碼可留空）<br>
             • 兩欄位：<strong>子類別,姓名</strong><br>
             • 單欄位：<strong>姓名</strong><br>
-            ※ 若分組不存在，系統將自動為此活動建立。首行若為表頭文字會自動略過。
+            ※ 提示：可直接開啟雲端硬碟封存試算表的「活動匯入名冊」複製貼入此處！首行表頭自動略過。
           </div>
         </div>
         <div id="batchImportErr" class="banner-error" style="display:none;margin-top:10px" role="alert"></div>
@@ -1878,7 +1870,10 @@
                 var rCount = (res && res.rosterCount != null) ? res.rosterCount : (window.__roster || []).length;
                 lastSync.textContent = '上次手動同步：' + timeStr + '（共 ' + gCount + ' 分類、' + rCount + ' 成員）';
               }
-              setToast('已成功將資料永久同步至 Google 雲端試算表！');
+              if (res && res.driveSettingsUrl && $('#eventSettingsUrl')) {
+                $('#eventSettingsUrl').value = res.driveSettingsUrl;
+              }
+              setToast('已成功將資料永久同步至 Google 雲端試算表（含活動匯入名冊）！');
               await refreshStorageHealth(eventId);
             } catch (err) {
               setToast(formatApiError(err), { error: true });

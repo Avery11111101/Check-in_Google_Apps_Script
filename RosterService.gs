@@ -318,11 +318,16 @@ function adminRegenerateEventCheckinToken(payload) {
   requireAdmin_();
   const eventId = String((payload && payload.eventId) || '').trim();
   if (!eventId) throw new Error('缺少 eventId。');
+  const current = String(getConfig_(eventCheckinTokenKey_(eventId), '') || '').trim();
   const token = generateCheckinCode_();
+  if (current) {
+    upsertConfig_(eventCheckinTokenPrevKey_(eventId), current);
+  } else {
+    deleteConfig_(eventCheckinTokenPrevKey_(eventId));
+  }
   upsertConfig_(eventCheckinTokenKey_(eventId), token);
-  deleteConfig_(eventCheckinTokenPrevKey_(eventId));
-  deleteConfig_(eventCheckinTokenLegacyKey_(eventId));
   upsertConfig_(eventCheckinTokenRotatedAtKey_(eventId), String(Date.now()));
+  invalidateEventCheckinTokenCache_(eventId);
   invalidateBoardStateCache_(eventId);
   return { ok: true, checkinToken: token };
 }

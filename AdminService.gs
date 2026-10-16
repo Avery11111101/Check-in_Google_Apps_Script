@@ -746,7 +746,10 @@ function adminSyncToSheets(payloadOrEventId) {
       shRoster.getRange(2, 1, finalRosterRows.length, 8).setValues(finalRosterRows);
     }
 
-    // 3. 更新快取狀態為已同步 (isDirty = false)
+    // 3. 同步至雲端硬碟活動資料夾專屬試算表（永久封存庫，供未來匯入活動使用）
+    const driveSettingsUrl = syncEventToDriveSpreadsheet_(eventId, store);
+
+    // 4. 更新快取狀態為已同步 (isDirty = false)
     store.isDirty = false;
     store.lastSynced = Date.now();
     fastStoreSave(eventId, store, false);
@@ -758,9 +761,184 @@ function adminSyncToSheets(payloadOrEventId) {
       count: store.roster.length,
       groupsCount: store.groups.length,
       timestamp: timeStr,
+      driveSettingsUrl: driveSettingsUrl || '',
     };
   } finally {
     lock.releaseLock();
+  }
+}
+
+/**
+ * 將活動名冊與分組同步至雲端硬碟活動資料夾內的專屬試算表（永久封存庫），
+ * 自動生成供未來匯入新活動專用的標準格式工作表。
+ * @param {string} eventId
+ * @param {Object} store
+ * @returns {string} 試算表 URL
+ */
+function syncEventToDriveSpreadsheet_(eventId, store) {
+  const eid = String(eventId || '').trim();
+  if (!eid || !store) return '';
+  try {
+    const ssDb = getDb_();
+    const shEvents = ssDb.getSheetByName(SHEETS.EVENTS);
+    if (!shEvents) return '';
+    const eventRows = shEvents.getDataRange().getValues();
+    let folderId = '';
+    let eventName = '';
+    for (let i = 1; i < eventRows.length; i++) {
+      if (String(eventRows[i][0]).trim() === eid) {
+        eventName = String(eventRows[i][1] || '').trim();
+        folderId = String(eventRows[i][5] || '').trim();
+        break;
+      }
+    }
+    if (!folderId) return '';
+
+    let folder = null;
+    try {
+      folder = DriveApp.getFolderById(folderId);
+    } catch (_e) {
+      return '';
+    }
+    if (!folder) return '';
+
+    // 尋找資料夾內的設定/封存試算表
+    let settingsFile = null;
+    if (typeof folder.getFiles === 'function') {
+      const files = folder.getFiles();
+      while (files && typeof files.hasNext === 'function' && files.hasNext()) {
+        const f = files.next();
+        const fn = typeof f.getName === 'function' ? f.getName() : '';
+        const mime = typeof f.getMimeType === 'function' ? f.getMimeType() : '';
+        if ((!mime || mime === 'application/vnd.google-apps.spreadsheet') &&
+            (fn.indexOf('_設定') !== -1 || fn.indexOf('設定') !== -1 || fn.indexOf('封存') !== -1)) {
+          settingsFile = f;
+          break;
+        }
+      }
+    }
+
+    let targetSs = null;
+    if (settingsFile && typeof settingsFile.getId === 'function') {
+      try {
+        targetSs = SpreadsheetApp.openById(settingsFile.getId());
+      } catch (_e2) {}
+    }
+
+    if (!targetSs) {
+      const stamp = typeof driveTimeStampForNaming_ === 'function' ? driveTimeStampForNaming_() : String(Date.now());
+      const safe = typeof sanitizeDriveSegment_ === 'function' ? sanitizeDriveSegment_(eventName, 80) : (eventName || '活動');
+      const title = '電子簽到_' + safe + '_' + stamp + '_設定';
+      try {
+        const created = SpreadsheetApp.create(title);
+        const createdFile = DriveApp.getFileById(created.getId());
+        if (createdFile && typeof createdFile.moveTo === 'function') {
+          createdFile.moveTo(folder);
+        }
+        targetSs = created;
+      } catch (_e3) {
+        return '';
+      }
+    }
+
+    if (!targetSs) return '';
+
+    // 建立群組對照 Map
+    const groupMap = new Map();
+    (store.groups || []).forEach(g => {
+      groupMap.set(String(g.groupId), g);
+    });
+
+    // 1. 活動匯入名冊工作表 (供未來直接複製或匯出 CSV 匯入活動使用)
+    let shImport = targetSs.getSheetByName('活動匯入名冊');
+    if (!shImport) {
+      shImport = targetSs.insertSheet('活動匯入名冊', 0);
+    }
+    if (typeof shImport.clear === 'function') shImport.clear();
+    const importHeaders = ['分類路徑', '姓名', '密碼', '排序', '啟用狀態'];
+    const importRows = [importHeaders];
+
+    (store.roster || []).forEach(m => {
+      const g = groupMap.get(String(m.groupId)) || {};
+      const path = g.path || g.name || DEFAULT_GROUP_NAME_;
+      importRows.push([
+        path,
+        m.displayName || '',
+        m.passwordHash ? '(已加密防偽)' : '',
+        Number(m.sort || 0),
+        m.enabled !== false ? 'TRUE' : 'FALSE',
+      ]);
+    });
+
+    if (importRows.length > 0 && typeof shImport.getRange === 'function') {
+      shImport.getRange(1, 1, importRows.length, importHeaders.length).setValues(importRows);
+      if (typeof shImport.setFrozenRows === 'function') shImport.setFrozenRows(1);
+    }
+
+    // 2. 分組工作表
+    let shGroups = targetSs.getSheetByName('分組');
+    if (!shGroups) shGroups = targetSs.insertSheet('分組');
+    if (typeof shGroups.clear === 'function') shGroups.clear();
+    const groupHeaders = ['groupId', '分類路徑', '名稱', '層級深度', '排序', '父節點Id'];
+    const groupData = [groupHeaders];
+    (store.groups || []).forEach(g => {
+      groupData.push([
+        g.groupId || '',
+        g.path || g.name || '',
+        g.name || g.groupName || '',
+        Number(g.depth || 0),
+        Number(g.sort || 0),
+        g.parentId || '',
+      ]);
+    });
+    if (groupData.length > 0 && typeof shGroups.getRange === 'function') {
+      shGroups.getRange(1, 1, groupData.length, groupHeaders.length).setValues(groupData);
+      if (typeof shGroups.setFrozenRows === 'function') shGroups.setFrozenRows(1);
+    }
+
+    // 3. 名單工作表
+    let shRoster = targetSs.getSheetByName('名單');
+    if (!shRoster) shRoster = targetSs.insertSheet('名單');
+    if (typeof shRoster.clear === 'function') shRoster.clear();
+    const rosterHeaders = ['personId', '所屬分類路徑', '姓名', '排序', '啟用狀態', 'groupId'];
+    const rosterData = [rosterHeaders];
+    (store.roster || []).forEach(m => {
+      const g = groupMap.get(String(m.groupId)) || {};
+      rosterData.push([
+        m.personId || '',
+        g.path || g.name || '',
+        m.displayName || '',
+        Number(m.sort || 0),
+        m.enabled !== false,
+        m.groupId || '',
+      ]);
+    });
+    if (rosterData.length > 0 && typeof shRoster.getRange === 'function') {
+      shRoster.getRange(1, 1, rosterData.length, rosterHeaders.length).setValues(rosterData);
+      if (typeof shRoster.setFrozenRows === 'function') shRoster.setFrozenRows(1);
+    }
+
+    // 4. 說明工作表
+    let shNote = targetSs.getSheetByName('說明');
+    if (!shNote) shNote = targetSs.insertSheet('說明');
+    if (typeof shNote.clear === 'function') shNote.clear();
+    const timeStr = typeof cellToPlain_ === 'function' ? cellToPlain_(new Date()) : new Date().toLocaleString();
+    if (typeof shNote.getRange === 'function') {
+      shNote.getRange(1, 1, 6, 1).setValues([
+        ['【電子簽到活動雲端硬碟永久封存庫】'],
+        ['活動名稱：' + eventName],
+        ['活動 ID (eventId)：' + eid],
+        ['最後同步時間：' + timeStr],
+        ['【未來活動匯入使用指南】：'],
+        ['若要在未來建立新活動時重複使用此名單，請開啟「活動匯入名冊」工作表，全選複製內容後，在後台點擊「批次匯入名冊」並貼上即可完全還原！'],
+      ]);
+      if (typeof shNote.setColumnWidth === 'function') shNote.setColumnWidth(1, 620);
+    }
+
+    return typeof targetSs.getUrl === 'function' ? targetSs.getUrl() : '';
+  } catch (err) {
+    Logger.log('syncEventToDriveSpreadsheet_ notice: ' + (err && err.message));
+    return '';
   }
 }
 

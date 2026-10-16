@@ -157,9 +157,8 @@ function ensureCheckinTokenRotated_(eventId) {
 
     current = next;
     upsertConfig_(eventCheckinTokenPrevKey_(eid), oldCur);
-    appendCheckinTokenToLegacy_(eid, oldCur);
     upsertConfig_(eventCheckinTokenKey_(eid), current);
-    upsertConfig_(eventCheckinTokenRotatedAtKey_(eid), String(nextRotatedAt));
+    upsertConfig_(eventCheckinTokenRotatedAtKey_(eid), String(lockNow));
 
     invalidateEventCheckinTokenCache_(eid);
     invalidateBoardStateCache_(eid);
@@ -167,6 +166,9 @@ function ensureCheckinTokenRotated_(eventId) {
     if (acquired) lock.releaseLock();
   }
 }
+
+/** 更換簽到驗證碼後的雙碼緩衝期：10 秒內可同時用新碼與上一個碼。 */
+var CHECKIN_TOKEN_ROTATION_GRACE_MS_ = 10000;
 
 function assertCheckinTokenMatches_(eventId, gotRaw) {
   const expected = getEventCheckinToken_(eventId);
@@ -177,9 +179,14 @@ function assertCheckinTokenMatches_(eventId, gotRaw) {
   }
   if (got === expected) return;
   const prev = getEventCheckinTokenPrev_(eventId);
-  if (prev && got === prev) return;
-  const legacy = readCheckinTokenLegacyList_(eventId);
-  if (legacy.length && legacy.indexOf(got) !== -1) return;
+  if (prev && got === prev) {
+    const atRaw = String(getConfig_(eventCheckinTokenRotatedAtKey_(eventId), '') || '').trim();
+    const rotatedAt = Number(atRaw);
+    const now = Date.now();
+    if (isFinite(rotatedAt) && rotatedAt > 0 && (now - rotatedAt <= CHECKIN_TOKEN_ROTATION_GRACE_MS_)) {
+      return;
+    }
+  }
   throw tokenAuthMismatchError_();
 }
 
