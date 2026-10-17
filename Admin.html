@@ -130,6 +130,7 @@
             <h2>活動 / 場次</h2>
             <div class="row" style="flex-wrap:wrap;gap:8px;align-items:center">
               <button type="button" id="btnOpenCreateEventModal">建立新活動</button>
+              <button type="button" id="btnOpenImportArchiveModal" class="secondary">📥 從雲端硬碟匯入封存</button>
               <button type="button" id="btnRefresh" class="secondary">重新整理</button>
               <button type="button" id="btnDeleteEvent" class="danger" style="margin-left:auto" disabled title="刪除當前選取的活動">刪除此活動</button>
             </div>
@@ -311,6 +312,61 @@
         <div class="row" style="margin-top:18px;justify-content:flex-end">
           <button type="button" id="btnCancelCreateEvent" class="secondary">取消</button>
           <button type="button" id="btnSubmitCreateEvent">確認建立</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- 從雲端硬碟匯入封存活動彈窗 -->
+    <div id="importArchiveModal" class="appModalBackdrop" role="dialog" aria-modal="true" aria-labelledby="importArchiveModalTitle">
+      <div class="appModalDialog" style="max-width:580px">
+        <div class="appModalHeader">
+          <h3 id="importArchiveModalTitle">📥 從雲端硬碟匯入封存活動</h3>
+          <button type="button" class="appModalClose" id="btnCloseImportArchiveModal">&times;</button>
+        </div>
+        <div class="field">
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
+            <label for="importArchiveSelect" style="margin-bottom:0;font-weight:700">選取雲端封存試算表</label>
+            <button type="button" id="btnRefreshArchives" class="secondary" style="padding:2px 8px;font-size:12px">🔄 重新掃描雲端</button>
+          </div>
+          <select id="importArchiveSelect">
+            <option value="">載入中…</option>
+          </select>
+          <div class="hint">系統自動掃描「電子簽到_系統」目錄下的所有封存活動與歷史版本試算表（相容任意時間戳後綴）。</div>
+        </div>
+
+        <div id="importArchiveDetails" style="display:none;background:var(--surface2);padding:14px;border-radius:8px;border:1px solid var(--border);margin-top:12px">
+          <div class="field" style="margin-top:0">
+            <label for="importArchiveEventName">活動名稱（可自由調整）</label>
+            <input type="text" id="importArchiveEventName" placeholder="活動名稱">
+          </div>
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;font-size:13px;margin-top:8px">
+            <div>
+              <span style="color:var(--text-muted)">原活動 ID (eventId)：</span>
+              <div id="importArchiveEventIdDisplay" style="font-family:monospace;font-weight:700"></div>
+            </div>
+            <div>
+              <span style="color:var(--text-muted)">封存時間 / 版本：</span>
+              <div id="importArchiveTimeDisplay" style="font-weight:600"></div>
+            </div>
+            <div>
+              <span style="color:var(--text-muted)">預估分組：</span>
+              <div id="importArchiveGroupsDisplay" style="font-weight:600"></div>
+            </div>
+            <div>
+              <span style="color:var(--text-muted)">預估名冊人數：</span>
+              <div id="importArchiveRosterDisplay" style="font-weight:600"></div>
+            </div>
+          </div>
+
+          <div id="importArchiveOverwriteAlert" class="banner-warn" style="display:none;margin-top:12px;font-size:13px" role="alert">
+            ⚠️ 注意：此活動 ID 在目前系統主庫中已存在，匯入後將直接<strong>還原覆蓋</strong>現有分組與名單，並保留原始密碼驗證雜湊值。
+          </div>
+        </div>
+
+        <div id="importArchiveErr" class="banner-error" style="display:none;margin-top:10px" role="alert"></div>
+        <div class="row" style="margin-top:18px;justify-content:flex-end;gap:8px">
+          <button type="button" id="btnCancelImportArchive" class="secondary">取消</button>
+          <button type="button" id="btnSubmitImportArchive" disabled>確認匯入並還原</button>
         </div>
       </div>
     </div>
@@ -1387,6 +1443,128 @@
             errEl.style.display = 'block';
           }
         }, { busyText: '建立中…' });
+      });
+
+      // 從雲端硬碟匯入封存活動彈窗控制
+      let cachedArchivesList = [];
+
+      async function refreshArchivesList() {
+        const select = $('#importArchiveSelect');
+        const details = $('#importArchiveDetails');
+        const btnSubmit = $('#btnSubmitImportArchive');
+        const errEl = $('#importArchiveErr');
+        select.innerHTML = '<option value="">掃描雲端硬碟封存檔案中…</option>';
+        select.disabled = true;
+        details.style.display = 'none';
+        btnSubmit.disabled = true;
+        errEl.style.display = 'none';
+
+        try {
+          const res = await api('adminListDriveArchives');
+          cachedArchivesList = (res && res.archives) || [];
+          if (!cachedArchivesList.length) {
+            select.innerHTML = '<option value="">未在「電子簽到_系統」目錄下找到符合格式的封存試算表</option>';
+            return;
+          }
+
+          let html = '<option value="">請選擇要匯入的封存活動 / 歷史版本…</option>';
+          cachedArchivesList.forEach((arch, idx) => {
+            const timeTag = arch.stamp ? ` (${arch.stamp})` : (arch.syncTime ? ` (${arch.syncTime})` : '');
+            const existsTag = arch.existsInDb ? ' [系統已存在 - 將覆蓋還原]' : '';
+            html += '<option value="' + idx + '">📁 ' + esc(arch.eventName) + esc(timeTag) + existsTag + '</option>';
+          });
+          select.innerHTML = html;
+          select.disabled = false;
+        } catch (err) {
+          select.innerHTML = '<option value="">掃描失敗，請點擊「重新掃描」</option>';
+          select.disabled = false;
+          errEl.textContent = formatApiError(err);
+          errEl.style.display = 'block';
+        }
+      }
+
+      $('#btnOpenImportArchiveModal').addEventListener('click', () => {
+        $('#importArchiveErr').style.display = 'none';
+        $('#importArchiveModal').classList.add('open');
+        refreshArchivesList();
+      });
+
+      function closeImportArchiveModal() {
+        $('#importArchiveModal').classList.remove('open');
+      }
+      $('#btnCloseImportArchiveModal').addEventListener('click', closeImportArchiveModal);
+      $('#btnCancelImportArchive').addEventListener('click', closeImportArchiveModal);
+      $('#btnRefreshArchives').addEventListener('click', () => {
+        refreshArchivesList();
+      });
+
+      $('#importArchiveSelect').addEventListener('change', () => {
+        const idx = $('#importArchiveSelect').value;
+        const details = $('#importArchiveDetails');
+        const btnSubmit = $('#btnSubmitImportArchive');
+        const alertOverwrite = $('#importArchiveOverwriteAlert');
+
+        if (idx === '' || !cachedArchivesList[idx]) {
+          details.style.display = 'none';
+          btnSubmit.disabled = true;
+          return;
+        }
+
+        const item = cachedArchivesList[idx];
+        $('#importArchiveEventName').value = item.eventName || '';
+        $('#importArchiveEventIdDisplay').textContent = item.eventId || '(將自動生成新 ID)';
+        $('#importArchiveTimeDisplay').textContent = item.syncTime || item.lastUpdated || item.stamp || '-';
+        $('#importArchiveGroupsDisplay').textContent = item.groupCountEst ? (item.groupCountEst + ' 個分組') : (item.hasCompleteSheets ? '已包含分組' : '依路徑自動建立');
+        $('#importArchiveRosterDisplay').textContent = item.rosterCountEst ? (item.rosterCountEst + ' 位成員') : '0 位';
+
+        if (item.existsInDb) {
+          alertOverwrite.style.display = 'block';
+        } else {
+          alertOverwrite.style.display = 'none';
+        }
+
+        details.style.display = 'block';
+        btnSubmit.disabled = false;
+      });
+
+      $('#btnSubmitImportArchive').addEventListener('click', async () => {
+        const idx = $('#importArchiveSelect').value;
+        if (idx === '' || !cachedArchivesList[idx]) return;
+
+        const item = cachedArchivesList[idx];
+        const customEventName = $('#importArchiveEventName').value.trim();
+        const errEl = $('#importArchiveErr');
+        const btn = $('#btnSubmitImportArchive');
+
+        if (!customEventName) {
+          errEl.textContent = '請輸入活動名稱。';
+          errEl.style.display = 'block';
+          return;
+        }
+
+        errEl.style.display = 'none';
+        withButtonBusy(btn, async () => {
+          try {
+            const res = await api('adminImportDriveArchive', {
+              fileId: item.fileId,
+              customEventName: customEventName,
+            });
+
+            closeImportArchiveModal();
+            await loadEvents();
+            $('#eventSelect').value = res.eventId;
+            $('#eventSelect').dispatchEvent(new Event('change'));
+
+            let msg = `已成功匯入封存活動：${res.name}（包含 ${res.rosterCount || 0} 位名冊成員）`;
+            if (res.isRestored) {
+              msg = `已成功還原覆蓋活動：${res.name}（${res.rosterCount || 0} 位成員）`;
+            }
+            setToast(msg);
+          } catch (e) {
+            errEl.textContent = formatApiError(e);
+            errEl.style.display = 'block';
+          }
+        }, { busyText: '匯入還原中…' });
       });
 
       // 刪除活動

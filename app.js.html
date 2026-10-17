@@ -188,8 +188,8 @@
   function api(name, ...args){
     var timeoutPromise = new Promise(function(_, reject){
       setTimeout(function(){
-        reject(new Error('伺服器請求逾時（超過 15 秒未回應），請檢查網路連線或稍後再試。'));
-      }, 15000);
+        reject(new Error('伺服器請求逾時（超過 45 秒未回應），請檢查網路連線或稍後再試。'));
+      }, 45000);
     });
     var callPromise = new Promise(function(resolve, reject){
       if (typeof google === 'undefined' || !google.script || !google.script.run || typeof google.script.run[name] !== 'function') {

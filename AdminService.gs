@@ -802,43 +802,20 @@ function syncEventToDriveSpreadsheet_(eventId, store) {
     }
     if (!folder) return '';
 
-    // 尋找資料夾內的設定/封存試算表
-    let settingsFile = null;
-    if (typeof folder.getFiles === 'function') {
-      const files = folder.getFiles();
-      while (files && typeof files.hasNext === 'function' && files.hasNext()) {
-        const f = files.next();
-        const fn = typeof f.getName === 'function' ? f.getName() : '';
-        const mime = typeof f.getMimeType === 'function' ? f.getMimeType() : '';
-        if ((!mime || mime === 'application/vnd.google-apps.spreadsheet') &&
-            (fn.indexOf('_設定') !== -1 || fn.indexOf('設定') !== -1 || fn.indexOf('封存') !== -1)) {
-          settingsFile = f;
-          break;
-        }
-      }
-    }
-
+    // 每次封存皆建立帶有最新時間戳的歷史版本試算表（保留過往歷史版本）
+    const stamp = typeof driveTimeStampForNaming_ === 'function' ? driveTimeStampForNaming_() : Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'yyyyMMdd_HHmmss_SSS');
+    const safe = typeof sanitizeDriveSegment_ === 'function' ? sanitizeDriveSegment_(eventName, 80) : (eventName || '活動');
+    const title = '電子簽到_' + safe + '_' + stamp + '_設定';
     let targetSs = null;
-    if (settingsFile && typeof settingsFile.getId === 'function') {
-      try {
-        targetSs = SpreadsheetApp.openById(settingsFile.getId());
-      } catch (_e2) {}
-    }
-
-    if (!targetSs) {
-      const stamp = typeof driveTimeStampForNaming_ === 'function' ? driveTimeStampForNaming_() : String(Date.now());
-      const safe = typeof sanitizeDriveSegment_ === 'function' ? sanitizeDriveSegment_(eventName, 80) : (eventName || '活動');
-      const title = '電子簽到_' + safe + '_' + stamp + '_設定';
-      try {
-        const created = SpreadsheetApp.create(title);
-        const createdFile = DriveApp.getFileById(created.getId());
-        if (createdFile && typeof createdFile.moveTo === 'function') {
-          createdFile.moveTo(folder);
-        }
-        targetSs = created;
-      } catch (_e3) {
-        return '';
+    try {
+      const created = SpreadsheetApp.create(title);
+      const createdFile = DriveApp.getFileById(created.getId());
+      if (createdFile && typeof createdFile.moveTo === 'function') {
+        createdFile.moveTo(folder);
       }
+      targetSs = created;
+    } catch (_e3) {
+      return '';
     }
 
     if (!targetSs) return '';
@@ -849,7 +826,7 @@ function syncEventToDriveSpreadsheet_(eventId, store) {
       groupMap.set(String(g.groupId), g);
     });
 
-    // 1. 活動匯入名冊工作表 (供未來直接複製或匯出 CSV 匯入活動使用)
+    // 1. 活動匯入名冊工作表 (供未來直接複製或匯出 CSV 匯入活動使用，密碼欄保留真實 Hash 以便直接還原)
     let shImport = targetSs.getSheetByName('活動匯入名冊');
     if (!shImport) {
       shImport = targetSs.insertSheet('活動匯入名冊', 0);
@@ -864,7 +841,7 @@ function syncEventToDriveSpreadsheet_(eventId, store) {
       importRows.push([
         path,
         m.displayName || '',
-        m.passwordHash ? '(已加密防偽)' : '',
+        m.passwordHash || '',
         Number(m.sort || 0),
         m.enabled !== false ? 'TRUE' : 'FALSE',
       ]);
@@ -896,11 +873,11 @@ function syncEventToDriveSpreadsheet_(eventId, store) {
       if (typeof shGroups.setFrozenRows === 'function') shGroups.setFrozenRows(1);
     }
 
-    // 3. 名單工作表
+    // 3. 名單工作表（包含 passwordHash 欄位以支援精確還原）
     let shRoster = targetSs.getSheetByName('名單');
     if (!shRoster) shRoster = targetSs.insertSheet('名單');
     if (typeof shRoster.clear === 'function') shRoster.clear();
-    const rosterHeaders = ['personId', '所屬分類路徑', '姓名', '排序', '啟用狀態', 'groupId'];
+    const rosterHeaders = ['personId', '所屬分類路徑', '姓名', '排序', '啟用狀態', 'groupId', 'passwordHash'];
     const rosterData = [rosterHeaders];
     (store.roster || []).forEach(m => {
       const g = groupMap.get(String(m.groupId)) || {};
@@ -911,6 +888,7 @@ function syncEventToDriveSpreadsheet_(eventId, store) {
         Number(m.sort || 0),
         m.enabled !== false,
         m.groupId || '',
+        m.passwordHash || '',
       ]);
     });
     if (rosterData.length > 0 && typeof shRoster.getRange === 'function') {
