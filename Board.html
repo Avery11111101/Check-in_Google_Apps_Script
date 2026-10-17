@@ -52,18 +52,19 @@
           <div class="hint boardQrHeroHint" style="margin-top:10px">簽到請掃描畫面<strong>固定角落</strong>之 QR（看板授權後會顯示；QR 下方為<strong>簽到用 6 位驗證碼</strong>，與管理頁「產生看板授權碼」不同）。</div>
 
           <div id="stats" class="statsBar">
-            <span>應到 <strong id="effectiveTotal">0</strong></span>
-            <span>／實到 <strong id="signedCount">0</strong></span>
-            <span>／未簽 <strong id="notYetCount">0</strong></span>
-            <span>／已簽退 <strong id="signedOutCount">0</strong></span>
+            <span class="clickable-stat" data-filter="ALL" title="點擊顯示全部狀態">應到 <strong id="effectiveTotal">0</strong></span>
+            <span>／</span><span class="clickable-stat" data-filter="IN" title="點擊只看已簽到">實到 <strong id="signedCount">0</strong></span>
+            <span>／</span><span class="clickable-stat" data-filter="NOT_YET" title="點擊只看未簽到">未簽 <strong id="notYetCount">0</strong></span>
+            <span>／</span><span class="clickable-stat" data-filter="OUT" title="點擊只看已簽退">已簽退 <strong id="signedOutCount">0</strong></span>
             <span>（出席率 <strong id="attendanceRate">0%</strong>，以目前在場計）</span>
             <span class="badge mono" id="updatedAt"></span>
           </div>
 
-          <div class="row" style="justify-content:center; align-items:center; gap:8px; margin-top:10px; flex-wrap:wrap">
-            <div class="pill"><span class="dot not"></span><span>未簽到</span></div>
-            <div class="pill"><span class="dot ok"></span><span>已簽到</span></div>
-            <div class="pill"><span class="dot warn"></span><span>已簽退</span></div>
+          <div class="row boardFilterRow" style="justify-content:center; align-items:center; gap:8px; margin-top:10px; flex-wrap:wrap" role="toolbar" aria-label="成員狀態篩選">
+            <div class="pill boardFilterPill is-active" role="button" tabindex="0" data-filter="ALL" title="顯示全部狀態成員"><span class="dot" style="background:var(--accent,#2563eb)"></span><span>全部</span></div>
+            <div class="pill boardFilterPill" role="button" tabindex="0" data-filter="NOT_YET" title="只顯示未簽到成員"><span class="dot not"></span><span>未簽到</span></div>
+            <div class="pill boardFilterPill" role="button" tabindex="0" data-filter="IN" title="只顯示已簽到成員"><span class="dot ok"></span><span>已簽到</span></div>
+            <div class="pill boardFilterPill" role="button" tabindex="0" data-filter="OUT" title="只顯示已簽退成員"><span class="dot warn"></span><span>已簽退</span></div>
             <div style="margin-left:8px;display:inline-flex;gap:6px">
               <button type="button" id="btnBoardExpandAll" class="secondary" style="font-size:12px;padding:3px 10px;min-height:28px">全部展開</button>
               <button type="button" id="btnBoardCollapseAll" class="secondary" style="font-size:12px;padding:3px 10px;min-height:28px">全部折疊</button>
@@ -71,6 +72,7 @@
           </div>
 
           <div id="boardFetchError" class="banner-error" style="display:none;margin-top:10px" role="alert"></div>
+          <div id="boardFilterEmpty" class="hint" style="display:none;margin-top:20px;text-align:center;padding:24px 10px;font-size:14px">此分類目前無任何成員。</div>
           <div id="board"></div>
           <div class="toast" id="toast"></div>
         </div>
@@ -144,6 +146,74 @@
       if (btnBoardExp) btnBoardExp.addEventListener('click', expandAllBoardNodes);
       var btnBoardCol = $('#btnBoardCollapseAll');
       if (btnBoardCol) btnBoardCol.addEventListener('click', collapseAllBoardNodes);
+
+      /** 看板狀態篩選控制：'ALL' | 'NOT_YET' | 'IN' | 'OUT' */
+      let currentBoardFilter = 'ALL';
+
+      function setBoardFilter(filter){
+        currentBoardFilter = filter || 'ALL';
+        var boardEl = $('#board');
+        if (boardEl) {
+          boardEl.setAttribute('data-board-filter', currentBoardFilter);
+        }
+        var pills = document.querySelectorAll('.boardFilterPill');
+        pills.forEach(function(pill){
+          if (pill.getAttribute('data-filter') === currentBoardFilter) {
+            pill.classList.add('is-active');
+            pill.setAttribute('aria-pressed', 'true');
+          } else {
+            pill.classList.remove('is-active');
+            pill.setAttribute('aria-pressed', 'false');
+          }
+        });
+        updateBoardFilterEmptyNotice_();
+      }
+
+      function updateBoardFilterEmptyNotice_(){
+        var emptyEl = $('#boardFilterEmpty');
+        if (!emptyEl) return;
+        if (currentBoardFilter === 'ALL') {
+          emptyEl.style.display = 'none';
+          return;
+        }
+        var boardEl = $('#board');
+        if (!boardEl) return;
+        var matched = boardEl.querySelector('.person[data-status="' + currentBoardFilter + '"]');
+        emptyEl.style.display = matched ? 'none' : 'block';
+      }
+
+      function initBoardFilterEvents_(){
+        var pills = document.querySelectorAll('.boardFilterPill');
+        pills.forEach(function(pill){
+          pill.addEventListener('click', function(){
+            var targetFilter = pill.getAttribute('data-filter');
+            if (targetFilter === currentBoardFilter && targetFilter !== 'ALL') {
+              setBoardFilter('ALL');
+            } else {
+              setBoardFilter(targetFilter);
+            }
+          });
+          pill.addEventListener('keydown', function(e){
+            if (e.key === 'Enter' || e.key === ' ') {
+              e.preventDefault();
+              pill.click();
+            }
+          });
+        });
+
+        var statsClicks = document.querySelectorAll('.statsBar .clickable-stat');
+        statsClicks.forEach(function(el){
+          el.addEventListener('click', function(){
+            var targetFilter = el.getAttribute('data-filter');
+            if (targetFilter === currentBoardFilter && targetFilter !== 'ALL') {
+              setBoardFilter('ALL');
+            } else {
+              setBoardFilter(targetFilter);
+            }
+          });
+        });
+      }
+      initBoardFilterEvents_();
       /** 看板輪詢固定每 5 秒（與簽到頁 POLL_SECONDS 分離）。 */
       const BOARD_POLL_SECONDS = 5;
       const BOARD_QR_DOCK_PX = 120;
@@ -521,8 +591,9 @@
 
       function buildPersonHtml_(p){
         var tagClass = statusTagClass_(p.status);
+        var s = (p.status === 'IN') ? 'IN' : ((p.status === 'OUT') ? 'OUT' : 'NOT_YET');
         return (
-          '<div class="person" data-person-id="' + esc(p.personId) + '">' +
+          '<div class="person" data-person-id="' + esc(p.personId) + '" data-status="' + s + '">' +
             '<div class="person__main">' +
               '<div class="name">' + esc(p.displayName) + '</div>' +
               '<div class="meta">' + esc(p.category || '') + (p.groupName ? (' / ' + esc(p.groupName)) : '') + '　<span class="mono" data-role="last-time">' + esc(p.lastTime ? fmtTs(p.lastTime) : '') + '</span></div>' +
@@ -694,11 +765,15 @@
             );
           }
           $('#board').innerHTML = '<div class="boardCategoryGrid">' + cardsHtml + '</div>';
+          $('#board').setAttribute('data-board-filter', currentBoardFilter);
+          updateBoardFilterEmptyNotice_();
           return;
         }
 
         if (categories && categories.length) {
           $('#board').innerHTML = '<div class="boardCategoryGrid">' + renderCategoriesHtml_(categories) + '</div>';
+          $('#board').setAttribute('data-board-filter', currentBoardFilter);
+          updateBoardFilterEmptyNotice_();
           return;
         }
 
@@ -709,6 +784,8 @@
             '<div class="boardCols">' + peopleHtml + '</div>'
           );
         }).join('');
+        $('#board').setAttribute('data-board-filter', currentBoardFilter);
+        updateBoardFilterEmptyNotice_();
       }
 
       function patchBoardInPlace_(groups, roster){
@@ -733,6 +810,11 @@
             var nextLabel = String(p.statusLabel || '');
             if (tagEl.textContent !== nextLabel) { tagEl.textContent = nextLabel; changed++; }
           }
+          var nextStatus = (p.status === 'IN') ? 'IN' : ((p.status === 'OUT') ? 'OUT' : 'NOT_YET');
+          if (node.getAttribute('data-status') !== nextStatus) {
+            node.setAttribute('data-status', nextStatus);
+            changed++;
+          }
           if (lastEl) {
             var nextTime = p.lastTime ? fmtTs(p.lastTime) : '';
             if (lastEl.textContent !== nextTime) { lastEl.textContent = nextTime; changed++; }
@@ -742,6 +824,7 @@
             (function(n){ setTimeout(function(){ n.classList.remove('is-just-updated'); }, 1500); })(node);
           }
         }
+        updateBoardFilterEmptyNotice_();
         return true;
       }
 

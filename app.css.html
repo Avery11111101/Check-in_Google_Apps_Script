@@ -1375,4 +1375,57 @@
       max-width: 100%;
     }
   }
+
+  /* 看板狀態篩選按鈕樣式 */
+  .boardFilterPill {
+    cursor: pointer;
+    user-select: none;
+    transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+    outline: none;
+  }
+  .boardFilterPill:hover {
+    border-color: var(--accent, #2563eb);
+    transform: translateY(-1px);
+    box-shadow: 0 2px 6px rgba(0,0,0,0.06);
+  }
+  .boardFilterPill:focus-visible {
+    box-shadow: 0 0 0 3px var(--ring, rgba(37,99,235,0.3));
+  }
+  .boardFilterPill.is-active {
+    background: var(--surface);
+    border-color: var(--accent, #2563eb);
+    box-shadow: 0 0 0 2px var(--accent, #2563eb);
+    font-weight: 700;
+  }
+
+  /* 看板人員依狀態篩選隱藏規則 */
+  #board[data-board-filter="NOT_YET"] .person:not([data-status="NOT_YET"]),
+  #board[data-board-filter="IN"] .person:not([data-status="IN"]),
+  #board[data-board-filter="OUT"] .person:not([data-status="OUT"]) {
+    display: none !important;
+  }
+
+  /* 當分類卡片或子分組內部沒有符合該篩選狀態之成員時自動隱藏 */
+  #board[data-board-filter="NOT_YET"] .boardSubgroupBlock:not(:has(.person[data-status="NOT_YET"])),
+  #board[data-board-filter="IN"] .boardSubgroupBlock:not(:has(.person[data-status="IN"])),
+  #board[data-board-filter="OUT"] .boardSubgroupBlock:not(:has(.person[data-status="OUT"])) {
+    display: none !important;
+  }
+
+  #board[data-board-filter="NOT_YET"] .boardCategoryCard:not(:has(.person[data-status="NOT_YET"])),
+  #board[data-board-filter="IN"] .boardCategoryCard:not(:has(.person[data-status="IN"])),
+  #board[data-board-filter="OUT"] .boardCategoryCard:not(:has(.person[data-status="OUT"])) {
+    display: none !important;
+  }
+
+  .statsBar .clickable-stat {
+    cursor: pointer;
+    border-radius: 4px;
+    padding: 2px 4px;
+    transition: background 0.15s ease;
+  }
+  .statsBar .clickable-stat:hover {
+    background: var(--surface2, rgba(0,0,0,0.05));
+    text-decoration: underline;
+  }
 </style>
