@@ -89,6 +89,7 @@
           <button type="button" id="btnSubmitCheckin" class="btnCheckinSubmit in">
             <span id="btnSubmitText">確認簽到</span>
           </button>
+          <div id="submitStatusHint" class="submitStatusHint" role="status" aria-live="polite" style="display:none"></div>
           <div style="display:flex;justify-content:space-between;align-items:center;margin-top:8px">
             <div class="pill" style="font-size:12px"><span class="dot ok" id="actionDot"></span><span id="actionText">即將簽到</span></div>
             <div class="badge mono" id="serverTime" style="font-size:11px"></div>
@@ -376,20 +377,30 @@
       }
 
       function setCheckinSubmittingUi(is){
-        const inEl = $('#btnIn');
-        const outEl = $('#btnOut');
         const subBtn = $('#btnSubmitCheckin');
-        const subText = $('#btnSubmitText');
-        if (inEl) inEl.disabled = is;
-        if (outEl) outEl.disabled = is;
+        const hintEl = $('#submitStatusHint');
+
+        // 僅鎖定送出大按鈕，嚴格禁止鎖定其餘輸入欄位（#btnIn, #btnOut, #personSearch, #personSelect 保持解鎖）
         if (subBtn) {
           subBtn.disabled = is;
           if (is) {
-            subBtn.classList.add('busy');
-            subBtn.innerHTML = '<span class="btn-spinner"></span><span>' + (action === 'IN' ? '簽到送出中…' : '簽退送出中…') + '</span>';
+            subBtn.classList.add('is-submitting');
+            subBtn.innerHTML = '<span class="btn-spinner"></span><span id="btnSubmitText">' + (action === 'IN' ? '簽到送出中…' : '簽退送出中…') + '</span>';
           } else {
-            subBtn.classList.remove('busy');
+            subBtn.classList.remove('is-submitting');
             subBtn.innerHTML = '<span id="btnSubmitText">' + (action === 'IN' ? '確認簽到' : '確認簽退') + '</span>';
+          }
+        }
+
+        if (hintEl) {
+          if (is) {
+            hintEl.className = 'submitStatusHint is-sending';
+            hintEl.textContent = '⏳ 正在傳送至伺服器，請稍候…';
+            hintEl.style.display = 'block';
+          } else if (hintEl.classList.contains('is-sending')) {
+            hintEl.style.display = 'none';
+            hintEl.textContent = '';
+            hintEl.className = 'submitStatusHint';
           }
         }
       }
@@ -398,24 +409,38 @@
         const inEl = $('#btnIn');
         const outEl = $('#btnOut');
         const subBtn = $('#btnSubmitCheckin');
-        if (!inEl || !outEl) return;
-        inEl.classList.remove('action-selected-in', 'action-unselected');
-        outEl.classList.remove('action-selected-out', 'action-unselected', 'secondary');
-        if (subBtn) {
-          subBtn.classList.remove('in', 'out');
-        }
-        if (action === 'IN') {
-          inEl.classList.add('action-selected-in');
-          outEl.classList.add('action-unselected');
-          if (subBtn) subBtn.classList.add('in');
-        } else if (action === 'OUT') {
-          outEl.classList.add('action-selected-out');
-          inEl.classList.add('action-unselected');
-          if (subBtn) subBtn.classList.add('out');
-        }
         const subText = $('#btnSubmitText');
+        const actionDot = $('#actionDot');
+        const actionText = $('#actionText');
+        if (!inEl || !outEl) return;
+
+        const isIn = (action === 'IN');
+
+        // 對稱 toggle 簽到按鈕：IN 時加 action-selected-in 移 secondary 與 action-unselected；OUT 則反向
+        inEl.classList.toggle('action-selected-in', isIn);
+        inEl.classList.toggle('action-unselected', !isIn);
+        inEl.classList.toggle('secondary', !isIn);
+
+        // 對稱 toggle 簽退按鈕：OUT 時加 action-selected-out 移 secondary 與 action-unselected；IN 則反向
+        outEl.classList.toggle('action-selected-out', !isIn);
+        outEl.classList.toggle('action-unselected', isIn);
+        outEl.classList.toggle('secondary', isIn);
+
+        // 送出大按鈕主題同步
+        if (subBtn) {
+          subBtn.classList.toggle('in', isIn);
+          subBtn.classList.toggle('out', !isIn);
+        }
         if (subText && !busy) {
-          subText.textContent = action === 'IN' ? '確認簽到' : '確認簽退';
+          subText.textContent = isIn ? '確認簽到' : '確認簽退';
+        }
+
+        // 狀態指示燈與文字同步
+        if (actionDot) {
+          actionDot.className = isIn ? 'dot ok' : 'dot warn';
+        }
+        if (actionText) {
+          actionText.textContent = isIn ? '即將簽到' : '即將簽退';
         }
       }
 
@@ -440,7 +465,7 @@
         if (inEl) inEl.disabled = block;
         if (outEl) outEl.disabled = block;
         if (subBtn) {
-          subBtn.disabled = block || !($('#personSelect').value);
+          subBtn.disabled = block;
         }
       }
 
@@ -466,9 +491,6 @@
 
       function setAction(next){
         action = next || 'IN';
-        $('#actionText').textContent = action === 'IN' ? '即將簽到' : '即將簽退';
-        const dot = $('#actionDot');
-        if (dot) dot.className = 'dot ' + (action === 'IN' ? 'ok' : 'warn');
         styleCheckinActionButtons();
       }
 
@@ -609,7 +631,7 @@
           return;
         }
         var s = String(status || '').toUpperCase();
-        var dotCls = s === 'IN' ? 'ok' : (s === 'OUT' ? 'bad' : '');
+        var dotCls = s === 'IN' ? 'ok' : (s === 'OUT' ? 'warn' : '');
         dot.className = 'dot' + (dotCls ? (' ' + dotCls) : '');
         var timeStr = fmtTimeOnly_(lastTime);
         var label = '';
@@ -691,48 +713,39 @@
         }
       }
 
-      var __successTimer = null;
+      var __feedbackTimer = null;
+      function showInPlaceSuccessFeedback(personName, submittedAction){
+        const hintEl = $('#submitStatusHint');
+        if (!hintEl) return;
+        if (__feedbackTimer) {
+          clearTimeout(__feedbackTimer);
+          __feedbackTimer = null;
+        }
+
+        const actText = (submittedAction === 'IN') ? '簽到成功！' : '簽退成功！';
+        const prefix = personName ? ('✅ 【' + esc(personName) + '】 ') : '✅ ';
+        hintEl.className = 'submitStatusHint is-success';
+        hintEl.innerHTML = prefix + actText;
+        hintEl.style.display = 'block';
+
+        __feedbackTimer = setTimeout(function(){
+          if (hintEl && hintEl.classList.contains('is-success')) {
+            hintEl.style.display = 'none';
+            hintEl.textContent = '';
+            hintEl.className = 'submitStatusHint';
+          }
+          __feedbackTimer = null;
+        }, 1500);
+      }
+
       function showSuccessModal(displayName, submittedAction, serverTime){
-        const modal = $('#checkinSuccessModal');
-        const nameEl = $('#successAttendeeName');
-        const actionEl = $('#successActionLabel');
-        const timeEl = $('#successServerTime');
-        const btnChangePwd = $('#btnSuccessChangePwd');
-        const progressEl = $('#successProgress');
-        const btnReset = $('#btnSuccessResetNext');
-
-        if (!modal) return;
-
-        if (nameEl) nameEl.textContent = displayName || '夥伴';
-        if (actionEl) actionEl.textContent = submittedAction === 'IN' ? '簽到成功！' : '簽退成功！';
-        if (timeEl) timeEl.textContent = '伺服器時間：' + (serverTime ? fmtTs(serverTime) : '剛剛');
-
-        if (btnChangePwd) {
-          var evtMeta = getSelectedEventMeta();
-          var canChange = evtMeta && evtMeta.allowChangePassword && evtMeta.isOpen;
-          btnChangePwd.style.display = canChange ? 'inline-block' : 'none';
-        }
-
-        modal.classList.add('open');
-        if (progressEl) {
-          progressEl.style.transition = 'none';
-          progressEl.style.width = '100%';
-          setTimeout(function(){
-            progressEl.style.transition = 'width 0.8s linear';
-            progressEl.style.width = '0%';
-          }, 30);
-        }
-
-        if (__successTimer) clearTimeout(__successTimer);
-        __successTimer = setTimeout(function(){
-          closeSuccessModalAndReset();
-        }, 850);
+        showInPlaceSuccessFeedback(displayName, submittedAction);
       }
 
       function closeSuccessModalAndReset(){
-        if (__successTimer) {
-          clearTimeout(__successTimer);
-          __successTimer = null;
+        if (__feedbackTimer) {
+          clearTimeout(__feedbackTimer);
+          __feedbackTimer = null;
         }
         const modal = $('#checkinSuccessModal');
         if (modal) modal.classList.remove('open');
@@ -775,7 +788,6 @@
 
         busy = true;
         setCheckinSubmittingUi(true);
-        setToast('送出中…', { clearMs: null });
         const submittedAction = action;
         const personSelEl = $('#personSelect');
         const selectedPersonName = personSelEl && personSelEl.selectedOptions[0] ? personSelEl.selectedOptions[0].textContent : '';
@@ -798,24 +810,42 @@
             try { navigator.vibrate([40, 30, 40]); } catch (_vibErr) {}
           }
 
-          // 彈出成功致意綠勾卡片
-          showSuccessModal(selectedPersonName, submittedAction, st);
-          renderStatusBox_(submittedAction, submittedAction === 'IN' ? '已簽到' : '已簽退', st);
+          // 1. 原地顯示 1.5 秒成功反饋
+          showInPlaceSuccessFeedback(selectedPersonName, submittedAction);
+
+          // 2. 立即可動（極速連續操作）：清空姓名選單、清空搜尋框、清空個人密碼；游標自動聚焦至搜尋框
+          const searchInput = $('#personSearch');
+          if (searchInput) {
+            searchInput.value = '';
+            applyPersonFilter('');
+            try { searchInput.focus(); } catch (_e) {}
+          }
+          if (personSelEl) personSelEl.value = '';
+          if (pwdInput) pwdInput.value = '';
+          updatePasswordUi(null);
+          var badge = $('#statusBadge');
+          if (badge) badge.style.display = 'none';
 
         }catch(e){
           var em = formatApiError(e);
+          const hintEl = $('#submitStatusHint');
+          if (hintEl) {
+            hintEl.className = 'submitStatusHint is-error';
+            hintEl.textContent = '❌ ' + em;
+            hintEl.style.display = 'block';
+          }
           if (isLikelyCheckinCodeAuthError_(em)) {
             clearCheckinCodeStorage(eventId);
             var inp3 = $('#checkinCode');
             if (inp3) inp3.value = '';
             setToast('驗證碼錯誤或已更新，請重新輸入。', { error: true });
-            syncCheckinInteractiveDisabled();
           } else {
             setToast(em, { error: true });
           }
         }finally{
           busy = false;
           setCheckinSubmittingUi(false);
+          styleCheckinActionButtons();
           syncCheckinInteractiveDisabled();
         }
       }

@@ -63,7 +63,7 @@
           <div class="row" style="justify-content:center; align-items:center; gap:8px; margin-top:10px; flex-wrap:wrap">
             <div class="pill"><span class="dot not"></span><span>未簽到</span></div>
             <div class="pill"><span class="dot ok"></span><span>已簽到</span></div>
-            <div class="pill"><span class="dot bad"></span><span>已簽退</span></div>
+            <div class="pill"><span class="dot warn"></span><span>已簽退</span></div>
             <div style="margin-left:8px;display:inline-flex;gap:6px">
               <button type="button" id="btnBoardExpandAll" class="secondary" style="font-size:12px;padding:3px 10px;min-height:28px">全部展開</button>
               <button type="button" id="btnBoardCollapseAll" class="secondary" style="font-size:12px;padding:3px 10px;min-height:28px">全部折疊</button>
@@ -445,7 +445,7 @@
 
       function statusTagClass_(status){
         if (status === 'IN') return 'ok';
-        if (status === 'OUT') return 'bad';
+        if (status === 'OUT') return 'warn';
         return 'not';
       }
 

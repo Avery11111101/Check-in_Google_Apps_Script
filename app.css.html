@@ -159,8 +159,7 @@
   button:hover{ border-color: var(--border-strong); background: var(--surface2); }
   button:active{ transform: translateY(1px); }
   button:focus-visible{ box-shadow: var(--focus-ring); }
-  button.primary,
-  button.action-selected-in{
+  button.primary{
     background: var(--accent);
     color: var(--accent-fg);
     border-color: transparent;
@@ -187,18 +186,39 @@
   }
   button.toggle-inactive{ opacity:.55; }
 
-  /* 簽到頁動作 */
+  /* 簽到頁動作按鈕規範 */
   button.action-selected-in{
-    background: var(--ok);
-    color:#fff;
-    border-color: transparent;
+    background: var(--ok) !important;
+    color: #ffffff !important;
+    border-color: transparent !important;
+    opacity: 1 !important;
   }
+  button.action-selected-in:hover:not(:disabled){
+    filter: brightness(0.94);
+    background: var(--ok) !important;
+  }
+
   button.action-selected-out{
-    background: var(--warn);
-    color:#fff;
-    border-color: transparent;
+    background: var(--warn) !important;
+    color: #ffffff !important;
+    border-color: transparent !important;
+    opacity: 1 !important;
   }
-  button.action-unselected{ opacity:.55; }
+  button.action-selected-out:hover:not(:disabled){
+    filter: brightness(0.94);
+    background: var(--warn) !important;
+  }
+
+  button.action-unselected{
+    background: var(--surface2) !important;
+    color: var(--muted) !important;
+    border: 1px solid var(--border) !important;
+    opacity: 0.75;
+  }
+  button.action-unselected:hover:not(:disabled){
+    opacity: 1;
+    background: var(--surface2) !important;
+  }
 
   .openStatusPill{ margin-top:10px; align-self:flex-start; }
   .openStatusPill strong{ font-weight:700; }
@@ -284,55 +304,12 @@
   .listRow .meta{ font-size:12px; color:var(--muted); margin-top:4px; }
   .listRow .right{ display:flex; gap:8px; align-items:center; flex-wrap:wrap; }
 
-  /* slide confirm */
-  .slideWrap{
-    margin-top:14px; padding:14px;
-    border:1px solid var(--border);
-    border-radius:12px;
-    background: var(--surface2);
-  }
-  .slideLabel{
-    display:flex; justify-content:space-between; align-items:center; margin-bottom:10px;
-  }
-  .slideBar{
-    position:relative; height:54px;
-    border-radius:12px;
-    background: var(--surface);
-    border:1px solid var(--border-strong);
-    overflow:hidden;
-  }
-  .slideText{
-    position:absolute; inset:0; display:flex; align-items:center; justify-content:center;
-    color: var(--muted); font-weight:500; pointer-events:none;
-  }
-  .thumb{
-    position:absolute; top:6px; right:6px;
-    height:40px; width:160px;
-    border-radius:10px;
-    background: var(--accent);
-    color: var(--accent-fg);
-    display:flex; align-items:center; justify-content:center;
-    cursor:grab;
-    user-select:none;
-    font-weight:600;
-    outline:none;
-    transform: translate3d(0,0,0);
-    transition: opacity .25s ease;
-  }
-  .thumb:focus-visible{ box-shadow: var(--focus-ring); }
-  .thumb.is-dragging{ cursor:grabbing; will-change: transform; transition: none; }
-  .thumb.is-busy, .slideBar.is-busy .thumb{
-    opacity:.55; cursor:not-allowed; pointer-events:none;
-  }
-  .slideBar.is-busy{ opacity:.92; }
-  .slideBar.is-gated{ opacity:.62; pointer-events:none; }
   .is-busy {
     opacity: .55 !important;
     cursor: wait !important;
     pointer-events: none !important;
     transition: opacity .15s ease;
   }
-  .thumb:active{ cursor:grabbing; }
 
   /* board */
   .boardCols{ display:grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap:10px; margin-top:10px; }
@@ -356,6 +333,7 @@
     font-weight:500;
   }
   .statusTag.ok{ color: var(--ok); background: rgba(47,170,93,.10); border-color: rgba(47,170,93,.22); }
+  .statusTag.warn{ color: var(--warn); background: rgba(217,119,6,.10); border-color: rgba(217,119,6,.22); }
   .statusTag.bad{ color: var(--bad); background: rgba(217,74,79,.10); border-color: rgba(217,74,79,.22); }
   .statusTag.not{ color: var(--muted); }
   .groupTitle{ margin:14px 0 6px; font-size:13px; color: var(--text); font-weight:600; }
@@ -582,15 +560,6 @@
       min-height: 44px;
       width: 100%;
     }
-    .page-checkin .slideLabel{
-      flex-wrap: wrap;
-      gap: 8px;
-      row-gap: 6px;
-    }
-    .page-checkin .slideLabel .pill{
-      min-width: 0;
-      max-width: 100%;
-    }
     .page-checkin #serverTime{
       font-size: 11px;
       margin-left: auto;
@@ -605,12 +574,6 @@
       font-size: 12px;
       line-height: 1.45;
       gap: 6px;
-    }
-    .page-checkin .slideBar{ height: 58px; }
-    .page-checkin .thumb{
-      height: 44px;
-      top: 7px;
-      width: min(160px, 48%);
     }
   }
 
@@ -709,46 +672,53 @@
       animation: none !important;
     }
   }
-  /* 行動端確認簽到大按鈕 */
+  /* 確認簽到/簽退大按鈕：緊湊商務風格 */
   .btnCheckinSubmit{
     display: flex;
     align-items: center;
     justify-content: center;
     gap: 8px;
     width: 100%;
-    min-height: 52px;
+    min-height: 50px;
     padding: 12px 20px;
-    font-size: 1.15rem;
+    font-size: 1.1rem;
     font-weight: 700;
     letter-spacing: .05em;
-    border-radius: 12px;
-    border: none;
+    border-radius: 8px;
+    border: 1px solid var(--border-strong);
     cursor: pointer;
-    transition: transform .12s ease, opacity .15s ease, background-color .2s ease;
-    box-shadow: 0 4px 14px rgba(0,0,0,.12);
+    transition: transform .06s ease, opacity .15s ease, background-color .15s ease;
   }
   .btnCheckinSubmit:active:not(:disabled){
-    transform: scale(0.98);
+    transform: translateY(1px);
   }
   .btnCheckinSubmit.in{
-    background: #2faa5d;
+    background: var(--ok);
     color: #ffffff;
+    border-color: rgba(0,0,0,.15);
   }
   .btnCheckinSubmit.in:hover:not(:disabled){
-    background: #279651;
+    filter: brightness(0.94);
+    background: var(--ok);
   }
   .btnCheckinSubmit.out{
-    background: #d97706;
+    background: var(--warn);
     color: #ffffff;
+    border-color: rgba(0,0,0,.15);
   }
   .btnCheckinSubmit.out:hover:not(:disabled){
-    background: #c26903;
+    filter: brightness(0.94);
+    background: var(--warn);
   }
-  .btnCheckinSubmit:disabled{
-    opacity: 0.5;
+  .btnCheckinSubmit:disabled,
+  .btnCheckinSubmit.is-submitting{
+    background: var(--not) !important;
+    color: var(--surface) !important;
+    border: 1px solid var(--border) !important;
+    opacity: 0.7 !important;
     cursor: not-allowed;
-    transform: none;
-    box-shadow: none;
+    transform: none !important;
+    box-shadow: none !important;
   }
   .btnCheckinSubmit .btn-spinner{
     width: 20px;
@@ -760,6 +730,32 @@
   }
   @keyframes spin{
     to{ transform: rotate(360deg); }
+  }
+
+  /* 原地即時狀態反饋容器 */
+  .submitStatusHint{
+    margin-top: 8px;
+    padding: 8px 12px;
+    border-radius: 6px;
+    font-size: 13px;
+    font-weight: 600;
+    text-align: center;
+    transition: opacity .15s ease;
+  }
+  .submitStatusHint.is-sending{
+    background: var(--surface2);
+    color: var(--muted);
+    border: 1px dashed var(--border);
+  }
+  .submitStatusHint.is-success{
+    background: rgba(47, 170, 93, 0.12);
+    color: var(--ok);
+    border: 1px solid var(--ok);
+  }
+  .submitStatusHint.is-error{
+    background: rgba(217, 74, 79, 0.12);
+    color: var(--bad);
+    border: 1px solid var(--bad);
   }
 
   /* 成功即時致意彈窗 */
@@ -980,6 +976,14 @@
   @media (min-width: 1600px) {
     .boardCategoryGrid {
       grid-template-columns: repeat(auto-fill, minmax(400px, 1fr));
+    }
+  }
+  @media (max-width: 720px) {
+    .page-board .container {
+      padding: 12px 14px 80px 14px;
+    }
+    .boardCategoryGrid {
+      grid-template-columns: 1fr;
     }
   }
 
@@ -1356,11 +1360,19 @@
     max-width: 960px;
     margin: 0 auto;
   }
+  .page-checkin .card {
+    max-width: 560px;
+    margin-left: auto;
+    margin-right: auto;
+  }
   @media (max-width: 768px) {
     .page-checkin .container {
       width: 100%;
       max-width: 100%;
       padding: 12px;
+    }
+    .page-checkin .card {
+      max-width: 100%;
     }
   }
 </style>

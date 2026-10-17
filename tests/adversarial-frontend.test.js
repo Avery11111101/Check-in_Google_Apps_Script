@@ -629,3 +629,527 @@ describe('Challenger 2: Mobile Tab Navigation & Touch Standards (375px~412px)', 
     assert.ok(!panes.find(p => p.id === 'paneSettings').classes.has('is-active'));
   });
 });
+
+describe('Challenger Gate 1: Checkin Toggle State Machine (R2) & Honest Submission Feedback (R3) Empirical Adversarial Suite', () => {
+
+  // Helper to extract function (supporting optional async)
+  function extractFn(src, fnName) {
+    let startIdx = src.indexOf('async function ' + fnName);
+    if (startIdx === -1) {
+      startIdx = src.indexOf('function ' + fnName);
+    }
+    if (startIdx === -1) throw new Error('Function ' + fnName + ' not found');
+    const openBrace = src.indexOf('{', startIdx);
+    let depth = 1;
+    let i = openBrace + 1;
+    while (i < src.length && depth > 0) {
+      if (src[i] === '{') depth++;
+      else if (src[i] === '}') depth--;
+      i++;
+    }
+    return src.slice(startIdx, i);
+  }
+
+  test('R2: 60 rounds of continuous high-speed toggle clicks (IN <-> OUT) prevents DOM class drift, duplication, and secondary loss', () => {
+    const mockWindow = new MockWindow();
+    const doc = mockWindow.document;
+
+    const btnIn = doc.createElement('button');
+    btnIn.id = 'btnIn';
+    const btnOut = doc.createElement('button');
+    btnOut.id = 'btnOut';
+    btnOut.classList.add('secondary'); // Initial state per Checkin.html
+
+    const subBtn = doc.createElement('button');
+    subBtn.id = 'btnSubmitCheckin';
+    subBtn.classList.add('btnCheckinSubmit', 'in');
+
+    const subText = doc.createElement('span');
+    subText.id = 'btnSubmitText';
+    subText.textContent = '確認簽到';
+    subBtn.appendChild(subText);
+
+    const actionText = doc.createElement('span');
+    actionText.id = 'actionText';
+    actionText.textContent = '即將簽到';
+
+    const actionDot = doc.createElement('span');
+    actionDot.id = 'actionDot';
+    actionDot.className = 'dot ok';
+
+    doc.body.appendChild(btnIn);
+    doc.body.appendChild(btnOut);
+    doc.body.appendChild(subBtn);
+    doc.body.appendChild(actionText);
+    doc.body.appendChild(actionDot);
+
+    const fnCode = extractFn(checkinHtml, 'styleCheckinActionButtons');
+    const setActionFn = extractFn(checkinHtml, 'setAction');
+
+    const sandbox = {
+      window: mockWindow,
+      document: doc,
+      $: (sel) => doc.querySelector(sel),
+      action: 'IN',
+      busy: false,
+    };
+    const ctx = vm.createContext(sandbox);
+    vm.runInContext(`${fnCode}\n${setActionFn}`, ctx);
+
+    // Initial check (IN)
+    ctx.setAction('IN');
+
+    // 60 rounds of continuous high-speed alternating clicks (120 state transitions)
+    for (let round = 1; round <= 60; round++) {
+      // Transition to OUT
+      ctx.setAction('OUT');
+
+      // Assertions for OUT state
+      assert.strictEqual(btnOut.classList.contains('action-selected-out'), true, `[R${round} OUT] btnOut must have action-selected-out`);
+      assert.strictEqual(btnOut.classList.contains('secondary'), false, `[R${round} OUT] btnOut must NOT have secondary`);
+      assert.strictEqual(btnOut.classList.contains('action-unselected'), false, `[R${round} OUT] btnOut must NOT have action-unselected`);
+      assert.strictEqual(btnOut.classList.contains('action-selected-in'), false, `[R${round} OUT] btnOut must NOT have action-selected-in`);
+
+      assert.strictEqual(btnIn.classList.contains('secondary'), true, `[R${round} OUT] btnIn MUST acquire secondary`);
+      assert.strictEqual(btnIn.classList.contains('action-unselected'), true, `[R${round} OUT] btnIn must have action-unselected`);
+      assert.strictEqual(btnIn.classList.contains('action-selected-in'), false, `[R${round} OUT] btnIn must NOT have action-selected-in`);
+      assert.strictEqual(btnIn.classList.contains('action-selected-out'), false, `[R${round} OUT] btnIn must NOT have action-selected-out`);
+
+      assert.strictEqual(subBtn.classList.contains('out'), true, `[R${round} OUT] subBtn must have out`);
+      assert.strictEqual(subBtn.classList.contains('in'), false, `[R${round} OUT] subBtn must NOT have in`);
+      assert.strictEqual(subText.textContent, '確認簽退', `[R${round} OUT] subText must be 確認簽退`);
+      assert.strictEqual(actionText.textContent, '即將簽退', `[R${round} OUT] actionText must be 即將簽退`);
+      assert.strictEqual(actionDot.className, 'dot warn', `[R${round} OUT] actionDot must be dot warn`);
+
+      // Check class duplication / drift
+      const inTokens = btnIn.className.trim().split(/\s+/);
+      const outTokens = btnOut.className.trim().split(/\s+/);
+      assert.strictEqual(inTokens.length, new Set(inTokens).size, `[R${round} OUT] btnIn contains duplicate classes: ${btnIn.className}`);
+      assert.strictEqual(outTokens.length, new Set(outTokens).size, `[R${round} OUT] btnOut contains duplicate classes: ${btnOut.className}`);
+
+      // Transition to IN
+      ctx.setAction('IN');
+
+      // Assertions for IN state
+      assert.strictEqual(btnIn.classList.contains('action-selected-in'), true, `[R${round} IN] btnIn must have action-selected-in`);
+      assert.strictEqual(btnIn.classList.contains('secondary'), false, `[R${round} IN] btnIn must NOT have secondary`);
+      assert.strictEqual(btnIn.classList.contains('action-unselected'), false, `[R${round} IN] btnIn must NOT have action-unselected`);
+      assert.strictEqual(btnIn.classList.contains('action-selected-out'), false, `[R${round} IN] btnIn must NOT have action-selected-out`);
+
+      assert.strictEqual(btnOut.classList.contains('secondary'), true, `[R${round} IN] btnOut MUST retain secondary`);
+      assert.strictEqual(btnOut.classList.contains('action-unselected'), true, `[R${round} IN] btnOut must have action-unselected`);
+      assert.strictEqual(btnOut.classList.contains('action-selected-out'), false, `[R${round} IN] btnOut must NOT have action-selected-out`);
+      assert.strictEqual(btnOut.classList.contains('action-selected-in'), false, `[R${round} IN] btnOut must NOT have action-selected-in`);
+
+      assert.strictEqual(subBtn.classList.contains('in'), true, `[R${round} IN] subBtn must have in`);
+      assert.strictEqual(subBtn.classList.contains('out'), false, `[R${round} IN] subBtn must NOT have out`);
+      assert.strictEqual(subText.textContent, '確認簽到', `[R${round} IN] subText must be 確認簽到`);
+      assert.strictEqual(actionText.textContent, '即將簽到', `[R${round} IN] actionText must be 即將簽到`);
+      assert.strictEqual(actionDot.className, 'dot ok', `[R${round} IN] actionDot must be dot ok`);
+
+      // Check class duplication / drift
+      const inTokensAfter = btnIn.className.trim().split(/\s+/);
+      const outTokensAfter = btnOut.className.trim().split(/\s+/);
+      assert.strictEqual(inTokensAfter.length, new Set(inTokensAfter).size, `[R${round} IN] btnIn contains duplicate classes: ${btnIn.className}`);
+      assert.strictEqual(outTokensAfter.length, new Set(outTokensAfter).size, `[R${round} IN] btnOut contains duplicate classes: ${btnOut.className}`);
+    }
+
+    // Stress test: Idempotent rapid spam (50 consecutive clicks on SAME state)
+    for (let i = 0; i < 50; i++) {
+      ctx.setAction('IN');
+    }
+    assert.strictEqual(btnIn.classList.contains('action-selected-in'), true);
+    assert.strictEqual(btnIn.classList.contains('secondary'), false);
+    assert.strictEqual(btnOut.classList.contains('secondary'), true);
+    assert.strictEqual(btnOut.classList.contains('action-unselected'), true);
+    const spamTokensIn = btnIn.className.trim().split(/\s+/);
+    assert.strictEqual(spamTokensIn.length, new Set(spamTokensIn).size, 'No duplicates after 50x IN spam');
+
+    for (let i = 0; i < 50; i++) {
+      ctx.setAction('OUT');
+    }
+    assert.strictEqual(btnOut.classList.contains('action-selected-out'), true);
+    assert.strictEqual(btnOut.classList.contains('secondary'), false);
+    assert.strictEqual(btnIn.classList.contains('secondary'), true);
+    assert.strictEqual(btnIn.classList.contains('action-unselected'), true);
+    const spamTokensOut = btnOut.className.trim().split(/\s+/);
+    assert.strictEqual(spamTokensOut.length, new Set(spamTokensOut).size, 'No duplicates after 50x OUT spam');
+  });
+
+  test('R3: Simulated flight latency - ONLY submit button is disabled while all other inputs & buttons remain completely interactive', () => {
+    const mockWindow = new MockWindow();
+    const doc = mockWindow.document;
+
+    const btnIn = doc.createElement('button');
+    btnIn.id = 'btnIn';
+    const btnOut = doc.createElement('button');
+    btnOut.id = 'btnOut';
+    const subBtn = doc.createElement('button');
+    subBtn.id = 'btnSubmitCheckin';
+    const hintEl = doc.createElement('div');
+    hintEl.id = 'submitStatusHint';
+
+    const personSearch = doc.createElement('input');
+    personSearch.id = 'personSearch';
+    const personSelect = doc.createElement('select');
+    personSelect.id = 'personSelect';
+    const checkinCode = doc.createElement('input');
+    checkinCode.id = 'checkinCode';
+    const personPassword = doc.createElement('input');
+    personPassword.id = 'personPassword';
+
+    doc.body.appendChild(btnIn);
+    doc.body.appendChild(btnOut);
+    doc.body.appendChild(subBtn);
+    doc.body.appendChild(hintEl);
+    doc.body.appendChild(personSearch);
+    doc.body.appendChild(personSelect);
+    doc.body.appendChild(checkinCode);
+    doc.body.appendChild(personPassword);
+
+    const fnCode = extractFn(checkinHtml, 'setCheckinSubmittingUi');
+    const styleButtonsFn = extractFn(checkinHtml, 'styleCheckinActionButtons');
+
+    const sandbox = {
+      window: mockWindow,
+      document: doc,
+      $: (sel) => doc.querySelector(sel),
+      action: 'IN',
+      busy: false,
+    };
+    const ctx = vm.createContext(sandbox);
+    vm.runInContext(`${fnCode}\n${styleButtonsFn}`, ctx);
+
+    // 1. Enter pending flight state
+    ctx.busy = true;
+    ctx.setCheckinSubmittingUi(true);
+
+    // Submit button MUST be disabled with is-submitting and sending spinner
+    assert.strictEqual(subBtn.disabled, true, 'Submit button MUST be disabled during flight');
+    assert.strictEqual(subBtn.classList.contains('is-submitting'), true, 'Submit button must have is-submitting');
+    assert.match(subBtn.innerHTML, /btn-spinner/, 'Submit button contains spinner icon');
+
+    // Hint element MUST show sending status
+    assert.strictEqual(hintEl.style.display, 'block', 'submitStatusHint must be visible during flight');
+    assert.strictEqual(hintEl.classList.contains('is-sending'), true, 'submitStatusHint must have is-sending');
+    assert.match(hintEl.textContent, /正在傳送|請稍候/, 'Hint text must indicate sending in progress');
+
+    // CRITICAL: ALL other interactive inputs & buttons MUST NOT be disabled
+    assert.strictEqual(btnIn.disabled, false, 'btnIn must NOT be disabled during flight');
+    assert.strictEqual(btnOut.disabled, false, 'btnOut must NOT be disabled during flight');
+    assert.strictEqual(personSearch.disabled, false, 'personSearch must NOT be disabled during flight');
+    assert.strictEqual(personSelect.disabled, false, 'personSelect must NOT be disabled during flight');
+    assert.strictEqual(checkinCode.disabled, false, 'checkinCode must NOT be disabled during flight');
+    assert.strictEqual(personPassword.disabled, false, 'personPassword must NOT be disabled during flight');
+
+    // 2. Adversarial action during flight: User changes action from IN to OUT
+    ctx.action = 'OUT';
+    ctx.styleCheckinActionButtons();
+
+    // Submit button text MUST NOT overwrite spinner because busy is true
+    assert.strictEqual(subBtn.disabled, true, 'Submit button remains disabled');
+    assert.match(subBtn.innerHTML, /btn-spinner/, 'Spinner preserved despite action change during flight');
+
+    // 3. Flight completes (pending ends)
+    ctx.busy = false;
+    ctx.setCheckinSubmittingUi(false);
+
+    assert.strictEqual(subBtn.disabled, false, 'Submit button unlocked after flight completes');
+    assert.strictEqual(subBtn.classList.contains('is-submitting'), false, 'is-submitting removed');
+    assert.strictEqual(hintEl.style.display, 'none', 'submitStatusHint hidden after flight completes');
+  });
+
+  test('R3: In-place 1.5-second success feedback triggers timer and auto-hides at 1500ms with debounce protection', () => {
+    const mockWindow = new MockWindow();
+    const doc = mockWindow.document;
+
+    const hintEl = doc.createElement('div');
+    hintEl.id = 'submitStatusHint';
+    doc.body.appendChild(hintEl);
+
+    const fnCode = extractFn(checkinHtml, 'showInPlaceSuccessFeedback');
+
+    let activeTimers = new Map();
+    let timerIdSeq = 1;
+
+    const fakeSetTimeout = (cb, delay) => {
+      const id = timerIdSeq++;
+      activeTimers.set(id, { cb, delay, scheduledAt: Date.now() });
+      return id;
+    };
+    const fakeClearTimeout = (id) => {
+      activeTimers.delete(id);
+    };
+
+    const sandbox = {
+      window: mockWindow,
+      document: doc,
+      $: (sel) => doc.querySelector(sel),
+      esc: (s) => String(s || ''),
+      setTimeout: fakeSetTimeout,
+      clearTimeout: fakeClearTimeout,
+      __feedbackTimer: null,
+    };
+    const ctx = vm.createContext(sandbox);
+    vm.runInContext('var __feedbackTimer = null;\n' + fnCode, ctx);
+
+    // Trigger success feedback
+    ctx.showInPlaceSuccessFeedback('林志玲', 'IN');
+
+    // Verify initial display
+    assert.strictEqual(hintEl.style.display, 'block', 'Hint visible immediately on success');
+    assert.strictEqual(hintEl.classList.contains('is-success'), true, 'Hint has is-success');
+    assert.match(hintEl.innerHTML, /林志玲/, 'Hint contains recipient name');
+    assert.match(hintEl.innerHTML, /簽到成功/, 'Hint confirms check-in success');
+
+    // Verify timer delay is precisely 1500ms
+    assert.strictEqual(activeTimers.size, 1, 'Exactly one timer scheduled');
+    const [firstId, firstTimer] = [...activeTimers.entries()][0];
+    assert.strictEqual(firstTimer.delay, 1500, 'Success feedback timeout MUST be exactly 1500ms');
+
+    // Debounce stress test: Rapid second success feedback before 1500ms expires
+    ctx.showInPlaceSuccessFeedback('周杰倫', 'OUT');
+
+    // Previous timer must have been cleared
+    assert.strictEqual(activeTimers.has(firstId), false, 'Previous 1500ms timer was cancelled by debounce');
+    assert.strictEqual(activeTimers.size, 1, 'New timer scheduled for second feedback');
+
+    const [secondId, secondTimer] = [...activeTimers.entries()][0];
+    assert.strictEqual(secondTimer.delay, 1500, 'Second feedback timeout is also 1500ms');
+    assert.match(hintEl.innerHTML, /周杰倫/, 'Hint updated to second person');
+    assert.match(hintEl.innerHTML, /簽退成功/, 'Hint updated to check-out');
+
+    // Trigger timer callback at 1500ms
+    secondTimer.cb();
+
+    // Verify auto-hide behavior
+    assert.strictEqual(hintEl.style.display, 'none', 'Hint auto-hidden after 1500ms');
+    assert.strictEqual(hintEl.textContent, '', 'Hint text wiped clean');
+    assert.strictEqual(hintEl.className, 'submitStatusHint', 'Hint class reverted to default');
+    assert.strictEqual(ctx.__feedbackTimer, null, 'Feedback timer handle reset to null');
+  });
+
+  test('R3: Continuous check-in flow immediately clears name select and focuses search input upon success', async () => {
+    const mockWindow = new MockWindow();
+    const doc = mockWindow.document;
+
+    const searchInput = doc.createElement('input');
+    searchInput.id = 'personSearch';
+    searchInput.value = '陳大華';
+    let focusCallCount = 0;
+    searchInput.focus = () => { focusCallCount++; };
+
+    const personSelect = doc.createElement('select');
+    personSelect.id = 'personSelect';
+    personSelect.value = 'p_chen_001';
+    // Add selectedOptions mock
+    personSelect.selectedOptions = [{ textContent: '陳大華' }];
+
+    const pwdInput = doc.createElement('input');
+    pwdInput.id = 'personPassword';
+    pwdInput.value = 'secret123';
+
+    const eventSelect = doc.createElement('select');
+    eventSelect.id = 'eventSelect';
+    eventSelect.value = 'EVT_CONTINUOUS';
+
+    const subBtn = doc.createElement('button');
+    subBtn.id = 'btnSubmitCheckin';
+    const subText = doc.createElement('span');
+    subText.id = 'btnSubmitText';
+    subBtn.appendChild(subText);
+
+    const hintEl = doc.createElement('div');
+    hintEl.id = 'submitStatusHint';
+
+    const statusBadge = doc.createElement('div');
+    statusBadge.id = 'statusBadge';
+    statusBadge.style.display = 'inline-flex';
+
+    const serverTimeEl = doc.createElement('div');
+    serverTimeEl.id = 'serverTime';
+
+    doc.body.appendChild(searchInput);
+    doc.body.appendChild(personSelect);
+    doc.body.appendChild(pwdInput);
+    doc.body.appendChild(eventSelect);
+    doc.body.appendChild(subBtn);
+    doc.body.appendChild(hintEl);
+    doc.body.appendChild(statusBadge);
+    doc.body.appendChild(serverTimeEl);
+
+    const submitFnCode = extractFn(checkinHtml, 'submit');
+    const setSubmittingCode = extractFn(checkinHtml, 'setCheckinSubmittingUi');
+    const feedbackCode = extractFn(checkinHtml, 'showInPlaceSuccessFeedback');
+    const styleButtonsCode = extractFn(checkinHtml, 'styleCheckinActionButtons');
+
+    let apiCalled = false;
+    const fakeApi = async (method, payload) => {
+      apiCalled = true;
+      return { ok: true, serverTime: 1700000000000 };
+    };
+
+    const sandbox = {
+      window: mockWindow,
+      document: doc,
+      $: (sel) => doc.querySelector(sel),
+      esc: (s) => String(s || ''),
+      fmtTs: (ts) => '2026-10-17 15:30:00',
+      api: fakeApi,
+      action: 'IN',
+      busy: false,
+      currentPersonMeta: null,
+      getSelectedEventRequiresCheckinCode: () => false,
+      getEffectiveCheckinCode: () => '',
+      getCheckinTokenForApi: () => 'token_test',
+      navigator: { userAgent: 'test-runner' },
+      applyPersonFilter: (q) => {},
+      updatePasswordUi: (meta) => {},
+      syncCheckinInteractiveDisabled: () => {},
+      setToast: () => {},
+      formatApiError: (e) => String(e && e.message || e),
+      isLikelyCheckinCodeAuthError_: () => false,
+      clearCheckinCodeStorage: () => {},
+      setTimeout: (cb, d) => 1,
+      clearTimeout: () => {},
+      __feedbackTimer: null,
+    };
+
+    const ctx = vm.createContext(sandbox);
+    const combinedCode = `
+      var __feedbackTimer = null;
+      var busy = false;
+      var action = 'IN';
+      var currentPersonMeta = null;
+      ${setSubmittingCode}
+      ${feedbackCode}
+      ${styleButtonsCode}
+      ${submitFnCode}
+    `;
+    vm.runInContext(combinedCode, ctx);
+
+    // Execute submit
+    await ctx.submit();
+
+    assert.strictEqual(apiCalled, true, 'Attendance API was invoked');
+
+    // Verification of continuous flow guarantees:
+    assert.strictEqual(searchInput.value, '', 'Search input immediately cleared upon success');
+    assert.strictEqual(personSelect.value, '', 'Person select immediately cleared upon success');
+    assert.strictEqual(pwdInput.value, '', 'Password input immediately cleared upon success');
+    assert.strictEqual(statusBadge.style.display, 'none', 'Status badge hidden upon success');
+    assert.ok(focusCallCount >= 1, 'Search input focus() MUST be called immediately for next user');
+
+    // In-place feedback is active
+    assert.strictEqual(hintEl.style.display, 'block', 'In-place feedback visible');
+    assert.strictEqual(hintEl.classList.contains('is-success'), true, 'In-place feedback marked success');
+    assert.match(hintEl.innerHTML, /陳大華/, 'Feedback includes submitted user name');
+
+    // Submit button unlocked for subsequent submissions
+    assert.strictEqual(subBtn.disabled, false, 'Submit button restored to active state');
+    assert.strictEqual(ctx.busy, false, 'Busy flag restored to false');
+  });
+
+  test('R3: Submission failure keeps form inputs intact for retry and displays in-place error without clearing data', async () => {
+    const mockWindow = new MockWindow();
+    const doc = mockWindow.document;
+
+    const searchInput = doc.createElement('input');
+    searchInput.id = 'personSearch';
+    searchInput.value = '王美麗';
+
+    const personSelect = doc.createElement('select');
+    personSelect.id = 'personSelect';
+    personSelect.value = 'p_wang_002';
+    personSelect.selectedOptions = [{ textContent: '王美麗' }];
+
+    const pwdInput = doc.createElement('input');
+    pwdInput.id = 'personPassword';
+    pwdInput.value = 'wrong_password';
+
+    const eventSelect = doc.createElement('select');
+    eventSelect.id = 'eventSelect';
+    eventSelect.value = 'EVT_ERROR_TEST';
+
+    const subBtn = doc.createElement('button');
+    subBtn.id = 'btnSubmitCheckin';
+    const subText = doc.createElement('span');
+    subText.id = 'btnSubmitText';
+    subBtn.appendChild(subText);
+
+    const hintEl = doc.createElement('div');
+    hintEl.id = 'submitStatusHint';
+
+    doc.body.appendChild(searchInput);
+    doc.body.appendChild(personSelect);
+    doc.body.appendChild(pwdInput);
+    doc.body.appendChild(eventSelect);
+    doc.body.appendChild(subBtn);
+    doc.body.appendChild(hintEl);
+
+    const submitFnCode = extractFn(checkinHtml, 'submit');
+    const setSubmittingCode = extractFn(checkinHtml, 'setCheckinSubmittingUi');
+    const feedbackCode = extractFn(checkinHtml, 'showInPlaceSuccessFeedback');
+    const styleButtonsCode = extractFn(checkinHtml, 'styleCheckinActionButtons');
+
+    let toastCalled = false;
+    let toastMessage = '';
+
+    const sandbox = {
+      window: mockWindow,
+      document: doc,
+      $: (sel) => doc.querySelector(sel),
+      esc: (s) => String(s || ''),
+      fmtTs: (ts) => '',
+      api: async () => { throw new Error('個人簽到密碼不正確'); },
+      action: 'IN',
+      busy: false,
+      currentPersonMeta: null,
+      getSelectedEventRequiresCheckinCode: () => false,
+      getEffectiveCheckinCode: () => '',
+      getCheckinTokenForApi: () => 'token_test',
+      navigator: { userAgent: 'test-runner' },
+      applyPersonFilter: () => {},
+      updatePasswordUi: () => {},
+      syncCheckinInteractiveDisabled: () => {},
+      setToast: (msg) => { toastCalled = true; toastMessage = msg; },
+      formatApiError: (e) => (e && e.message ? e.message : String(e)),
+      isLikelyCheckinCodeAuthError_: () => false,
+      clearCheckinCodeStorage: () => {},
+      setTimeout: () => 1,
+      clearTimeout: () => {},
+      __feedbackTimer: null,
+    };
+
+    const ctx = vm.createContext(sandbox);
+    const combinedCode = `
+      var __feedbackTimer = null;
+      var busy = false;
+      var action = 'IN';
+      var currentPersonMeta = null;
+      ${setSubmittingCode}
+      ${feedbackCode}
+      ${styleButtonsCode}
+      ${submitFnCode}
+    `;
+    vm.runInContext(combinedCode, ctx);
+
+    // Execute submit which will fail
+    await ctx.submit();
+
+    // Verify error state
+    assert.strictEqual(hintEl.style.display, 'block', 'Error hint displayed');
+    assert.strictEqual(hintEl.classList.contains('is-error'), true, 'Error hint has is-error class');
+    assert.match(hintEl.textContent, /❌\s*個人簽到密碼不正確/, 'Error text explains reason');
+
+    // CRITICAL: Inputs MUST NOT be wiped on error (allowing user to correct without re-typing)
+    assert.strictEqual(searchInput.value, '王美麗', 'Search query preserved on error');
+    assert.strictEqual(personSelect.value, 'p_wang_002', 'Person select preserved on error');
+    assert.strictEqual(pwdInput.value, 'wrong_password', 'Password preserved on error');
+
+    // Submit button unlocked for retry
+    assert.strictEqual(subBtn.disabled, false, 'Submit button unlocked for retry');
+    assert.strictEqual(ctx.busy, false, 'Busy flag unlocked for retry');
+  });
+});
+
