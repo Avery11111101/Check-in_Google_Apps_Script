@@ -142,9 +142,12 @@ function doGet(e) {
   boot.checkinCode = checkinCode || '';
   if (eventId) {
     try {
-      boot.initialRoster = publicListRoster(eventId, checkinCode || '');
+      const res = publicListRoster(eventId, checkinCode || '');
+      boot.initialRoster = Array.isArray(res) ? res : (res && res.roster ? res.roster : []);
+      boot.checkinTicket = (res && res.ticket) ? res.ticket : '';
     } catch (_e) {
       boot.initialRoster = [];
+      boot.checkinTicket = '';
     }
   }
   t.bootstrap = boot;

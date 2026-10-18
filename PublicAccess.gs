@@ -167,6 +167,46 @@ function ensureCheckinTokenRotated_(eventId) {
   }
 }
 
+/** 單次簽到票證（Check-in Ticket）有效期限：15 分鐘（900 秒） */
+var CHECKIN_TICKET_TTL_SECONDS_ = 900;
+
+function generateCheckinTicket_() {
+  const chars = 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
+  let out = 'ct_';
+  for (let i = 0; i < 24; i++) {
+    out += chars.charAt(Math.floor(Math.random() * chars.length));
+  }
+  return out;
+}
+
+function issueCheckinTicket_(eventId) {
+  const ticket = generateCheckinTicket_();
+  try {
+    const cache = CacheService.getScriptCache();
+    cache.put('chk_tkt_' + ticket, String(eventId).trim(), CHECKIN_TICKET_TTL_SECONDS_);
+  } catch (_e) {}
+  return ticket;
+}
+
+function isCheckinTicketValid_(eventId, ticket) {
+  if (!ticket || typeof ticket !== 'string' || !ticket.startsWith('ct_')) return false;
+  try {
+    const cache = CacheService.getScriptCache();
+    const cachedEid = cache.get('chk_tkt_' + ticket);
+    return Boolean(cachedEid && cachedEid === String(eventId).trim());
+  } catch (_e) {
+    return false;
+  }
+}
+
+function consumePublicCheckinTicket_(ticket) {
+  if (!ticket || typeof ticket !== 'string' || !ticket.startsWith('ct_')) return;
+  try {
+    const cache = CacheService.getScriptCache();
+    cache.remove('chk_tkt_' + ticket);
+  } catch (_e) {}
+}
+
 /** 更換簽到驗證碼後的雙碼緩衝期：10 秒內可同時用新碼與上一個碼。 */
 var CHECKIN_TOKEN_ROTATION_GRACE_MS_ = 10000;
 
@@ -177,7 +217,13 @@ function assertCheckinTokenMatches_(eventId, gotRaw) {
     if (got) throw tokenAuthSpuriousWhenNoCodeError_();
     return;
   }
+  // 1. 若帶入有效的單次簽到票證 (Ticket)，直接判定通過
+  if (isCheckinTicketValid_(eventId, got)) {
+    return;
+  }
+  // 2. 比對當前最新 6 位驗證碼
   if (got === expected) return;
+  // 3. 比對 10 秒緩衝期內的上一組驗證碼
   const prev = getEventCheckinTokenPrev_(eventId);
   if (prev && got === prev) {
     const atRaw = String(getConfig_(eventCheckinTokenRotatedAtKey_(eventId), '') || '').trim();

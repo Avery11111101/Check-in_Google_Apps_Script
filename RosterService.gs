@@ -362,5 +362,20 @@ function publicListRoster(eventId, token) {
     }
   });
 
-  return out.sort((a, b) => a.displayName.localeCompare(b.displayName, 'zh-Hant'));
+  const roster = out.sort((a, b) => a.displayName.localeCompare(b.displayName, 'zh-Hant'));
+
+  // 若此活動需要簽到驗證碼，發放或延續單次簽到票證 (Ticket)
+  let ticket = '';
+  if (getEventCheckinToken_(id)) {
+    if (isCheckinTicketValid_(id, token)) {
+      ticket = token;
+    } else {
+      ticket = issueCheckinTicket_(id);
+    }
+  }
+
+  return {
+    roster: roster,
+    ticket: ticket
+  };
 }

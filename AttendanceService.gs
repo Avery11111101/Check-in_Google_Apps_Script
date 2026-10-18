@@ -15,7 +15,7 @@ function validateAttendancePayload_(payload) {
   if (personId.length > 64) throw new Error('personId 格式異常。');
   if (!ALLOWED_ACTIONS_.includes(action)) throw new Error('action 必須是 IN 或 OUT。');
   if (font.length > 64) throw new Error('font 參數過長。');
-  if (token.length > 32) throw new Error('token 參數過長。');
+  if (token.length > 64) throw new Error('token 參數過長。');
   if (password.length > 100) throw new Error('密碼長度超出限制。');
 
   return { eventId, personId, action, font, token, password, clientMeta: payload.clientMeta || {} };
@@ -94,9 +94,11 @@ function publicSubmitAttendance(payload) {
 
     // 防重複：同狀態重送不寫 log
     if (p.action === 'IN' && lastStatus === 'IN') {
+      consumePublicCheckinTicket_(p.token);
       return { ok: true, serverTime: serverTimeStr, deduped: true, status: 'IN' };
     }
     if (p.action === 'OUT' && lastStatus === 'OUT') {
+      consumePublicCheckinTicket_(p.token);
       return { ok: true, serverTime: serverTimeStr, deduped: true, status: 'OUT' };
     }
 
@@ -112,6 +114,7 @@ function publicSubmitAttendance(payload) {
     shLogs.appendRow([logId, p.eventId, p.personId, p.action, now, p.font, JSON.stringify(p.clientMeta || {})]);
 
     invalidateBoardStateCache_(p.eventId);
+    consumePublicCheckinTicket_(p.token);
     return { ok: true, serverTime: serverTimeStr, status: p.action };
   } finally {
     lock.releaseLock();

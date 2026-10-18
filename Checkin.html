@@ -238,6 +238,8 @@
         return 'checkinCode_' + String(eventId || '').trim();
       }
 
+      var currentCheckinTicket = (typeof BOOT !== 'undefined' && BOOT && BOOT.checkinTicket) ? String(BOOT.checkinTicket).trim() : '';
+
       function getEffectiveCheckinCode(){
         var inp = $('#checkinCode');
         var raw = inp ? String(inp.value || '').replace(/\D/g, '') : '';
@@ -246,7 +248,7 @@
 
       function getCheckinTokenForApi(){
         if (!getSelectedEventRequiresCheckinCode()) return '';
-        return getEffectiveCheckinCode();
+        return currentCheckinTicket || getEffectiveCheckinCode();
       }
 
       function persistCheckinCode(){
@@ -455,7 +457,7 @@
         const open = getCheckinSelectedEventOpen();
         var gatedOff = !!id && open === false;
         var needCode = getSelectedEventRequiresCheckinCode();
-        var codeOk = !needCode || getEffectiveCheckinCode().length === 6;
+        var codeOk = !needCode || (currentCheckinTicket ? true : getEffectiveCheckinCode().length === 6);
         var gatedCode = !!id && needCode && !codeOk;
         var block = gatedOff || gatedCode;
 
@@ -526,22 +528,31 @@
         }
         const needCode = getSelectedEventRequiresCheckinCode();
         const codeLen = getEffectiveCheckinCode().length;
-        if (needCode && codeLen !== 6) {
+        if (needCode && codeLen !== 6 && !currentCheckinTicket) {
           ROSTER_FULL = [];
           $('#personSelect').innerHTML = '<option value="">請先輸入 6 位驗證碼以載入名單</option>';
           return;
         }
         try {
-          const roster = await api('publicListRoster', eventId, getCheckinTokenForApi());
+          const res = await api('publicListRoster', eventId, getCheckinTokenForApi());
           if (mySeq !== rosterReqSeq) return;
-          ROSTER_FULL = Array.isArray(roster) ? roster : [];
+          if (Array.isArray(res)) {
+            ROSTER_FULL = res;
+          } else if (res && Array.isArray(res.roster)) {
+            ROSTER_FULL = res.roster;
+            if (res.ticket) {
+              currentCheckinTicket = String(res.ticket).trim();
+            }
+          }
           applyPersonFilter(($('#personSearch').value || '').trim());
+          syncCheckinInteractiveDisabled();
         } catch (e) {
           if (mySeq !== rosterReqSeq) return;
           ROSTER_FULL = [];
           $('#personSelect').innerHTML = '<option value="">名單載入失敗</option>';
           var msg = formatApiError(e);
           if (isLikelyCheckinCodeAuthError_(msg)) {
+            currentCheckinTicket = '';
             clearCheckinCodeStorage(eventId);
             var inp = $('#checkinCode');
             if (inp) inp.value = '';
@@ -549,6 +560,7 @@
           } else {
             setToast(msg, { error: true });
           }
+          syncCheckinInteractiveDisabled();
         }
       }
 
@@ -704,6 +716,7 @@
           if (badge) badge.style.display = 'none';
           var msg = formatApiError(e);
           if (isLikelyCheckinCodeAuthError_(msg)) {
+            currentCheckinTicket = '';
             clearCheckinCodeStorage(eventId);
             var inp2 = $('#checkinCode');
             if (inp2) inp2.value = '';
@@ -774,7 +787,7 @@
         if (!eventId) return setToast('請選擇活動。', { clearMs: 3200 });
         if (!personId) return setToast('請先選擇姓名。', { clearMs: 3200 });
         if (!action) return setToast('請先選擇「簽到」或「簽退」。', { clearMs: 3200 });
-        if (getSelectedEventRequiresCheckinCode() && getEffectiveCheckinCode().length !== 6) {
+        if (getSelectedEventRequiresCheckinCode() && !currentCheckinTicket && getEffectiveCheckinCode().length !== 6) {
           return setToast('請先輸入管理頁或看板 QR 下方顯示的 6 位驗證碼。', { clearMs: 4000 });
         }
 
@@ -813,14 +826,32 @@
           // 1. 原地顯示 1.5 秒成功反饋
           showInPlaceSuccessFeedback(selectedPersonName, submittedAction);
 
-          // 2. 立即可動（極速連續操作）：清空姓名選單、清空搜尋框、清空個人密碼；游標自動聚焦至搜尋框
+          // 2. 清除單次驗證狀態（輸入一次驗證碼僅供簽到一人，成功後下一個人必須重新輸入）
+          currentCheckinTicket = '';
+          __urlCheckinCode = '';
+          if (BOOT) {
+            BOOT.checkinCode = '';
+            BOOT.checkinToken = '';
+            BOOT.checkinTicket = '';
+          }
+          clearCheckinCodeStorage(eventId);
+          var inpCode = $('#checkinCode');
+          if (inpCode) inpCode.value = '';
+
+          // 3. 立即可動（極速連續操作）：清空姓名選單、清空搜尋框、清空個人密碼；游標自動聚焦至搜尋框
           const searchInput = $('#personSearch');
           if (searchInput) {
             searchInput.value = '';
             applyPersonFilter('');
             try { searchInput.focus(); } catch (_e) {}
           }
-          if (personSelEl) personSelEl.value = '';
+          if (personSelEl) {
+            personSelEl.value = '';
+            if (getSelectedEventRequiresCheckinCode()) {
+              ROSTER_FULL = [];
+              personSelEl.innerHTML = '<option value="">請先輸入 6 位驗證碼以載入名單</option>';
+            }
+          }
           if (pwdInput) pwdInput.value = '';
           updatePasswordUi(null);
           var badge = $('#statusBadge');
@@ -835,6 +866,7 @@
             hintEl.style.display = 'block';
           }
           if (isLikelyCheckinCodeAuthError_(em)) {
+            currentCheckinTicket = '';
             clearCheckinCodeStorage(eventId);
             var inp3 = $('#checkinCode');
             if (inp3) inp3.value = '';
@@ -957,6 +989,7 @@
         checkinCodeEl.addEventListener('input', function(){
           var v = String(checkinCodeEl.value || '').replace(/\D/g, '').slice(0, 6);
           if (checkinCodeEl.value !== v) checkinCodeEl.value = v;
+          currentCheckinTicket = '';
           persistCheckinCode();
           syncCheckinInteractiveDisabled();
           debouncedReloadAfterCode();
