@@ -3,18 +3,22 @@
   <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+    <meta name="color-scheme" content="light dark">
+    <meta name="referrer" content="strict-origin-when-cross-origin">
     <base target="_top">
     <script>
       (function(){
         try {
           var v = String(localStorage.getItem('theme') || '').toLowerCase();
+          var meta = document.querySelector('meta[name="color-scheme"]');
+          if (meta) meta.content = (v === 'light' || v === 'dark') ? v : 'light dark';
           var t = (v === 'light' || v === 'dark') ? v
             : (window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light');
           document.documentElement.setAttribute('data-theme', t);
         } catch (_e) {}
       })();
     </script>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js" integrity="sha384-3zSEDfvllQohrq0PHL1fOXJuC/jSOO34H46t6UQfobFOmxE5BpjjaIJY5F2/bMnU" crossorigin="anonymous" referrerpolicy="no-referrer"></script>
     <script>
       if (typeof QRCode === 'undefined') {
         document.write('<?!= include("qrlib.js"); ?>');
@@ -733,7 +737,7 @@
         const box = $('#boardPairCodeDisplay');
         if (box) {
           box.style.display = 'none';
-          box.innerHTML = '';
+          box.replaceChildren();
         }
       }
 
@@ -821,7 +825,7 @@
         const eventId = getSelectedEventId();
         if (!eventId) {
           badge.style.display = 'none';
-          badge.innerHTML = '';
+          badge.replaceChildren();
           return;
         }
         const hit = (window.__events || []).find(e => e.eventId === eventId);

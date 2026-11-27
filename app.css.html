@@ -2,6 +2,13 @@
   :root{
     color-scheme: light dark;
 
+    &:has(> head > meta[name="color-scheme"][content="dark"]) {
+      color-scheme: dark;
+    }
+    &:has(> head > meta[name="color-scheme"][content="light"]) {
+      color-scheme: light;
+    }
+
     /* 淺色（預設 - 傳統經典風格） */
     --bg:#f5f6f9;
     --bg-grad-1: transparent;

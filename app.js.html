@@ -26,8 +26,13 @@
     catch (_e) { return false; }
   }
   function applyTheme(theme){
-    var t = (theme === 'light' || theme === 'dark') ? theme : (systemPrefersDark() ? 'dark' : 'light');
-    try { document.documentElement.setAttribute('data-theme', t); } catch (_e) {}
+    var explicit = (theme === 'light' || theme === 'dark') ? theme : '';
+    var t = explicit || (systemPrefersDark() ? 'dark' : 'light');
+    try {
+      var meta = document.querySelector('meta[name="color-scheme"]');
+      if (meta) meta.content = explicit || 'light dark';
+      document.documentElement.setAttribute('data-theme', t);
+    } catch (_e) {}
   }
   function initTheme(){
     applyTheme(getStoredTheme());
@@ -38,14 +43,24 @@
           if (!getStoredTheme()) applyTheme('');
         });
       }
+      window.addEventListener('storage', function(e){
+        if (e && e.key === THEME_LS_KEY) applyTheme(getStoredTheme());
+      });
     } catch (_e) {}
   }
   function toggleTheme(){
     var stored = getStoredTheme();
-    var current = stored || (systemPrefersDark() ? 'dark' : 'light');
+    var sysDark = systemPrefersDark();
+    var current = stored || (sysDark ? 'dark' : 'light');
     var next = current === 'dark' ? 'light' : 'dark';
-    try { localStorage.setItem(THEME_LS_KEY, next); } catch (_e) {}
-    applyTheme(next);
+    var sysDefault = sysDark ? 'dark' : 'light';
+    if (next === sysDefault) {
+      try { localStorage.removeItem(THEME_LS_KEY); } catch (_e) {}
+      applyTheme('');
+    } else {
+      try { localStorage.setItem(THEME_LS_KEY, next); } catch (_e) {}
+      applyTheme(next);
+    }
   }
   function renderThemeToggle(){
     var btn = document.createElement('button');
@@ -259,12 +274,12 @@
     if (!hostEl) return;
     var c = String(code || '').replace(/\D/g, '').trim();
     if (!c || c.length !== 6) {
-      while (hostEl.firstChild) hostEl.removeChild(hostEl.firstChild);
+      hostEl.replaceChildren();
       hostEl.style.display = 'none';
       return;
     }
     hostEl.style.display = '';
-    while (hostEl.firstChild) hostEl.removeChild(hostEl.firstChild);
+    hostEl.replaceChildren();
     var hint = document.createElement('div');
     hint.className = 'hint';
     hint.style.cssText = 'text-align:center;margin-top:6px';
@@ -293,7 +308,7 @@
 
   function renderQrInHost(hostEl, text, sizePx){
     if (!hostEl) return;
-    while (hostEl.firstChild) hostEl.removeChild(hostEl.firstChild);
+    hostEl.replaceChildren();
     const t = String(text || '').trim();
     if (!t) return;
     if (typeof QRCode === 'undefined') {
